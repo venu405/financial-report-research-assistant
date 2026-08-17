@@ -51,11 +51,35 @@ def test_list_docs_filter_and_delete(tmp_path):
     _add(store, "d1", "文档一", "default")
     _add(store, "d2", "文档二", "product")
 
-    docs_default = store.list_docs(kb_id="default")
+    docs_default, total_default = store.list_docs(kb_id="default")
     assert [d["doc_id"] for d in docs_default] == ["d1"]
+    assert total_default == 1
 
     assert store.list_kbs() == ["default", "product"]
 
     deleted = store.delete_doc("d1")
     assert deleted == 1
-    assert store.list_docs(kb_id="default") == []
+    docs, total = store.list_docs(kb_id="default")
+    assert docs == [] and total == 0
+
+
+def test_list_docs_pagination(tmp_path):
+    """分页：limit/offset 聚合后切片，total 为全量。"""
+    store = VectorStore(persist_dir=str(tmp_path))
+    for i in range(5):
+        _add(store, f"d{i}", f"文档{i}", "default")
+
+    page1, total = store.list_docs(kb_id="default", limit=2, offset=0)
+    page2, _ = store.list_docs(kb_id="default", limit=2, offset=2)
+    assert total == 5
+    assert [d["doc_id"] for d in page1] == ["d0", "d1"]
+    assert [d["doc_id"] for d in page2] == ["d2", "d3"]
+
+
+def test_upsert_replaces_same_doc(tmp_path):
+    """同一 doc_id 重新入库：upsert 覆盖同索引分块，且 delete_doc 只删该 doc。"""
+    store = VectorStore(persist_dir=str(tmp_path))
+    _add(store, "d1", "第一版", "default")
+    _add(store, "d1", "第二版", "default")  # 同 doc_id 同索引 0 → 覆盖
+    docs, _ = store.list_docs(kb_id="default")
+    assert [d for d in docs if d["doc_id"] == "d1"][0]["chunks"] == 1

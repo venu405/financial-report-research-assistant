@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 import os
 import sys
 import time
+import uuid
 from collections import deque
+from contextvars import ContextVar
 from pathlib import Path
 from threading import Lock
-from typing import Any, Dict, Iterator, Optional
+from typing import Any, Dict, Iterator, Literal, Optional
 
 from dotenv import load_dotenv
 
@@ -58,9 +61,13 @@ logger.remove()
 logger.add(
     sys.stderr,
     level="INFO",
-    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <4}</level> | <cyan>{function}</cyan> | <cyan>{file}:{line}</cyan> | <level>{message}</level>",
+    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <4}</level> | {extra[request_id]} | <cyan>{function}</cyan> | <cyan>{file}:{line}</cyan> | <level>{message}</level>",
     colorize=True,
 )
+
+# 请求级上下文：request_id（中间件注入），每条日志自动带上，跨模块串联一次请求
+_request_id_ctx: ContextVar[str] = ContextVar("request_id", default="-")
+logger = logger.patch(lambda record: record["extra"].setdefault("request_id", _request_id_ctx.get()))
 
 
 class _SlidingWindowLimiter:
@@ -144,6 +151,13 @@ def _mask_secret(value: Optional[str], visible: int = 4) -> str:
     return f"{value[:visible]}...{value[-visible:]}"
 
 
+def _key_matches(provided: Optional[str], expected: str) -> bool:
+    """恒定时间字符串比较（防时序攻击），与明文 != 相比不泄露逐字符差异。"""
+    if not provided or not expected:
+        return False
+    return hmac.compare_digest(provided, expected)
+
+
 def _build_config(payload: ResearchRequest) -> Configuration:
     overrides: Dict[str, Any] = {}
 
@@ -172,13 +186,23 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # P1-3：request_id 注入——优先用调用方传入的 X-Request-Id，否则生成 uuid，
+    # 回写响应头。配合 loguru 的 {extra[request_id]}，一次请求的日志可跨模块串联。
+    @app.middleware("http")
+    async def _inject_request_id(request: Request, call_next):
+        request_id = request.headers.get("X-Request-Id") or uuid.uuid4().hex
+        _request_id_ctx.set(request_id)
+        response = await call_next(request)
+        response.headers["X-Request-Id"] = request_id
+        return response
+
     # ---- 深度研究接口鉴权 + 限流（防烧付费 API）----
     _admin_key = _cfg.admin_api_key
     _research_limiter = _SlidingWindowLimiter(max_requests=10, window_seconds=60)
 
     def _check_research_access(request: Request) -> None:
         """深度研究接口的统一鉴权入口：可选 API key + 全局限流。"""
-        if _admin_key and request.headers.get("X-API-Key") != _admin_key:
+        if _admin_key and not _key_matches(request.headers.get("X-API-Key"), _admin_key):
             raise HTTPException(status_code=401, detail="无效的 API Key")
         if not _research_limiter.allow("research"):
             raise HTTPException(status_code=429, detail="请求过于频繁，请稍后再试")
@@ -215,9 +239,38 @@ def create_app() -> FastAPI:
             _mask_secret(config.llm_api_key),
         )
 
+        # P1-3：安全告警——生产环境必须配置 ADMIN_API_KEY，否则管理接口无 X-API-Key 兜底
+        if not config.admin_api_key:
+            logger.warning(
+                "ADMIN_API_KEY 未配置：/admin/* 与用户管理接口将无 X-API-Key 兜底，"
+                "仅依赖 admin token 鉴权。生产环境请设置 ADMIN_API_KEY。"
+            )
+
     @app.get("/healthz")
     def health_check() -> Dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/readyz")
+    def ready_check() -> Dict[str, Any]:
+        """就绪探针：探活下游依赖（SQLite 用户库 / Chroma / Ollama embedding）。
+
+        任一依赖不可用返回 503，供 K8s/Docker 就绪判定。轻量级 healthz 保持纯 liveness。
+        """
+        kb = _get_kb()  # 会初始化 Chroma/embedding（若未初始化）
+        checks: dict[str, str] = {}
+        try:
+            kb["auth"].list_users()
+            checks["sqlite_users"] = "ok"
+        except Exception as exc:
+            checks["sqlite_users"] = f"error: {exc}"
+        try:
+            kb["store"].list_kbs()
+            checks["chroma"] = "ok"
+        except Exception as exc:
+            checks["chroma"] = f"error: {exc}"
+
+        ok = all(v == "ok" for v in checks.values())
+        return {"status": "ok" if ok else "degraded", "checks": checks}
 
     @app.get("/admin/diag")
     def admin_diag(request: Request) -> Dict[str, Any]:
@@ -225,12 +278,31 @@ def create_app() -> FastAPI:
 
         鉴权：若配置了 ADMIN_API_KEY 则要求 X-API-Key 头匹配（与 /research 相同）。
         """
-        if _admin_key and request.headers.get("X-API-Key") != _admin_key:
+        if _admin_key and not _key_matches(request.headers.get("X-API-Key"), _admin_key):
             raise HTTPException(status_code=401, detail="无效的 API Key")
         stats = global_stats.snapshot()
         stats["token_budget_limit"] = _cfg.research_token_budget
         stats["rate_limiter"] = f"{_research_limiter._window}s / {_research_limiter._max} req"
         return stats
+
+    @app.get("/admin/audit")
+    def admin_audit(
+        request: Request,
+        limit: int = Query(default=200, ge=1, le=1000),
+    ) -> Dict[str, Any]:
+        """审计日志（最近 N 条，需 X-API-Key 或 admin）。管理界面/合规导出用。"""
+        if _admin_key and not _key_matches(request.headers.get("X-API-Key"), _admin_key):
+            raise HTTPException(status_code=401, detail="无效的 API Key")
+        kb = _get_kb()
+        return {"total": kb["audit"].count(), "entries": kb["audit"].recent(limit)}
+
+    @app.get("/admin/metrics")
+    def admin_metrics(request: Request) -> Dict[str, Any]:
+        """进程内指标（计数 + 延迟分位数）。需 X-API-Key 或 admin。"""
+        if _admin_key and not _key_matches(request.headers.get("X-API-Key"), _admin_key):
+            raise HTTPException(status_code=401, detail="无效的 API Key")
+        from services.kb.metrics import global_metrics
+        return global_metrics.snapshot()
 
     @app.post("/research", response_model=ResearchResponse)
     def run_research(payload: ResearchRequest, request: Request) -> ResearchResponse:
@@ -417,6 +489,21 @@ def create_app() -> FastAPI:
             auth_path = Path(cfg.kb_chroma_dir).parent / "kb_users.db"
             auth = AuthStore(auth_path)
 
+            # P1-2：审计日志（SQLite，写操作留痕）
+            from services.kb.audit import AuditStore
+            audit_path = Path(cfg.kb_chroma_dir).parent / "kb_audit.db"
+            audit = AuditStore(audit_path)
+
+            # P0-1：从环境变量引导首个 admin（KB_BOOTSTRAP_ADMIN_TOKEN，幂等、永不过期）
+            # 生产 bootstrap 入口，替代裸 POST /kb/users 建号。引导后应删除该环境变量。
+            _bootstrap_token = os.getenv("KB_BOOTSTRAP_ADMIN_TOKEN", "").strip()
+            if _bootstrap_token:
+                auth.bootstrap_admin("bootstrap-admin", _bootstrap_token)
+                logger.warning(
+                    "已引导 bootstrap admin（KB_BOOTSTRAP_ADMIN_TOKEN）。"
+                    "生产环境请删除该环境变量，改用 X-API-Key 或 admin token。"
+                )
+
             _kb.update(
                 {
                     "ready": True,
@@ -425,6 +512,7 @@ def create_app() -> FastAPI:
                     "graph": graph,
                     "config": cfg,
                     "auth": auth,
+                    "audit": audit,
                 }
             )
             return _kb
@@ -448,15 +536,46 @@ def create_app() -> FastAPI:
                 detail=f"用户 {user_id} 无权访问知识库 {kb_id}",
             )
 
-    def _require_admin(kb: dict, user_id: str | None) -> None:
-        """管理员校验——用户/权限管理接口专用。缺身份 401，非 admin 403。"""
+    def _key_matches(provided: str | None, expected: str) -> bool:
+        """恒定时间比较 API key（防时序攻击）。任一为空返回 False。"""
+        if not provided or not expected:
+            return False
+        return hmac.compare_digest(provided.encode("utf-8"), expected.encode("utf-8"))
+
+    # P0-1：用户/权限管理接口的统一鉴权——X-API-Key（匹配 ADMIN_API_KEY）或
+    # 已认证的 admin 用户（token / user_id），二选一。杜绝「裸接口建 admin」。
+    def _require_kb_admin(
+        kb: dict,
+        x_api_key: str | None,
+        x_api_token: str | None,
+        admin_id: str | None,
+    ) -> str:
+        """管理员校验——用户/权限管理接口专用。返回操作者身份标识（审计用）。
+
+        - X-API-Key 匹配 ADMIN_API_KEY（恒定时间比较）→ 放行，返回 "api_key:<前缀>"（运维/bootstrap）
+        - 否则解析 token/user_id → 必须是 admin 角色，否则 403；返回该 user_id
+        - 两者皆无 → 401
+        """
+        if _admin_key and _key_matches(x_api_key, _admin_key):
+            return f"api_key:{(_admin_key or '')[:4]}"
+        user_id = _resolve_user_id(kb, x_api_token, admin_id)
         if not user_id:
-            raise HTTPException(status_code=401, detail="此操作需管理员身份（token 或 user_id）")
+            raise HTTPException(
+                status_code=401, detail="此操作需管理员身份（X-API-Key 或 admin token）"
+            )
         if not kb["auth"].is_admin(user_id):
             raise HTTPException(status_code=403, detail=f"用户 {user_id} 无管理员权限")
+        return user_id
 
     # 🟠4：token 鉴权解析——X-Api-Token 头优先，user_id 直传回退（过渡期兼容）
     _REQUIRE_TOKEN = bool(os.getenv("KB_REQUIRE_TOKEN", "").strip() not in ("", "0", "false"))
+
+    # P0-1：自助注册开关。KB_OPEN_SIGNUP=1 时允许无鉴权建号，但角色强制 member
+    # （杜绝 admin 提权）。默认关闭——生产必须走 X-API-Key 或 admin token 建号。
+    _OPEN_SIGNUP = bool(os.getenv("KB_OPEN_SIGNUP", "").strip() in ("1", "true", "yes"))
+
+    # P1-1：上传大小上限（MB）。流式写盘，超限 413 并清理临时文件。
+    _MAX_UPLOAD_MB = int(os.getenv("KB_MAX_UPLOAD_MB", "50"))
 
     def _resolve_user_id(
         kb: dict, x_api_token: str | None, user_id: str | None
@@ -466,7 +585,7 @@ def create_app() -> FastAPI:
         优先级：X-Api-Token 头（反查 users.api_token）> user_id 直传（兼容旧客户端）。
         - token 存在但无效 → 401（防止拿假 token 配 user_id 冒充）
         - 仅 user_id 且 KB_REQUIRE_TOKEN=1 → 401（生产强制 token）
-        - 两者都无 → None（由 _require_kb_access/_require_admin 决定 401 还是放行）
+        - 两者都无 → None（由 _require_kb_access/_require_kb_admin 决定 401 还是放行）
         """
         if x_api_token:
             user = kb["auth"].get_user_by_token(x_api_token.strip())
@@ -483,13 +602,19 @@ def create_app() -> FastAPI:
             return user_id
         return None
 
-    def _ingest_file(
-        kb: dict, file: UploadFile, *, doc_id: str, title: str | None, kb_id: str
-    ) -> tuple[int, str]:
-        """入库共用管线：保存临时文件 → 解析分块 → 向量化 → 写入 Chroma。
+    def _prepare_chunks(
+        kb: dict,
+        file: UploadFile,
+        *,
+        doc_id: str,
+        title: str | None,
+        kb_id: str,
+        ocr_mode: str = "local",
+    ) -> tuple[list, list, str]:
+        """解析 + 分块 + 向量化（不写库）。返回 (chunks, vectors, resolved_title)。
 
-        /kb/ingest（新建）与 PUT /kb/docs/{id}（更新）共用，保证两条路径行为一致。
-        返回 (分块数, 实际使用的标题)。
+        P0-2 原子更新的「准备阶段」：任何失败（解析/embedding）都不触碰旧数据，
+        调用方（ingest/update）拿到结果后才决定写库。
         """
         import uuid
         from services.kb.ingest import build_chunks
@@ -497,39 +622,67 @@ def create_app() -> FastAPI:
         suffix = Path(file.filename or "upload").suffix
         tmp_path = Path(kb["config"].kb_chroma_dir).parent / f"_upload_{uuid.uuid4().hex}{suffix}"
         tmp_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path.write_bytes(file.file.read())
+        # P1-1：流式写盘（1MB 分片）+ 大小上限，避免整文件读进内存 / 磁盘写满
+        max_bytes = _MAX_UPLOAD_MB * 1024 * 1024
+        size = 0
+        with open(tmp_path, "wb") as _f:
+            while True:
+                chunk = file.file.read(1024 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > max_bytes:
+                    _f.close()
+                    try:
+                        tmp_path.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"文件超过大小限制 {_MAX_UPLOAD_MB}MB",
+                    )
+                _f.write(chunk)
 
         cfg = kb["config"]
-        chunks = build_chunks(
-            tmp_path,
-            doc_id=doc_id,
-            chunk_size=cfg.kb_chunk_size,
-            overlap=cfg.kb_chunk_overlap,
-            kb_id=kb_id,
-        )
-        if not chunks:
+        try:
+            chunks = build_chunks(
+                tmp_path,
+                doc_id=doc_id,
+                chunk_size=cfg.kb_chunk_size,
+                overlap=cfg.kb_chunk_overlap,
+                kb_id=kb_id,
+                ocr_mode=ocr_mode,
+            )
+            if not chunks:
+                raise HTTPException(status_code=400, detail="文档解析后无有效内容")
+            vectors = kb["embeddings"].embed_texts([c.text for c in chunks])
+            resolved_title = (title or "").strip() or tmp_path.stem
+            return chunks, vectors, resolved_title
+        finally:
             try:
-                tmp_path.unlink(missing_ok=True)
-            except Exception:
-                pass
-            raise HTTPException(status_code=400, detail="文档解析后无有效内容")
+                tmp_path.unlink(missing_ok=True)  # 清理临时文件
+            except Exception as cleanup_exc:  # 清理失败不阻断（残留无害）
+                logger.warning("临时文件清理失败（忽略）: {}", cleanup_exc)
 
-        vectors = kb["embeddings"].embed_texts([c.text for c in chunks])
-        resolved_title = (title or "").strip() or tmp_path.stem
-        kb["store"].add_chunks(
+    def _write_chunks(
+        kb: dict,
+        *,
+        chunks: list,
+        vectors: list,
+        doc_id: str,
+        doc_title: str,
+        kb_id: str,
+    ) -> list[str]:
+        """写库（单次 upsert 原子）。返回新写入的 chunk_id 列表。"""
+        return kb["store"].add_chunks(
             embeddings=vectors,
             texts=[c.text for c in chunks],
             doc_id=doc_id,
-            doc_title=resolved_title,
+            doc_title=doc_title,
             source_type=chunks[0].source_type,
             chunk_indices=[c.chunk_index for c in chunks],
             kb_id=kb_id,
         )
-        try:
-            tmp_path.unlink(missing_ok=True)  # 清理临时文件
-        except Exception as cleanup_exc:  # 清理失败不阻断（残留无害）
-            logger.warning("临时文件清理失败（忽略）: {}", cleanup_exc)
-        return len(chunks), resolved_title
 
     @app.post("/kb/ingest")
     def kb_ingest(
@@ -537,10 +690,14 @@ def create_app() -> FastAPI:
         title: str | None = Form(default=None),
         kb_id: str = Form(default="default"),
         user_id: str | None = Form(default=None),
+        ocr_mode: Literal["local", "baidu", "auto"] = Form(default="local"),
         x_api_token: str | None = Header(default=None),
     ) -> Dict[str, Any]:
         """上传文档入库：解析 → 分块 → 向量化 → 写入 Chroma（指定知识库）。
 
+        ocr_mode：图片/扫描 PDF 的 OCR 模式。local=本地（默认，零费用）；baidu=强制
+        百度手写识别（难图/潦草字用，需配 BAIDU_OCR_API_KEY/SECRET_KEY）；auto=本地
+        优先、空/低置信兜底到百度。
         鉴权：X-Api-Token 头优先，user_id 直传兼容（KB_REQUIRE_TOKEN=1 时仅认 token）。
         """
         try:
@@ -550,17 +707,27 @@ def create_app() -> FastAPI:
             user_id = _resolve_user_id(kb, x_api_token, user_id)
             _require_kb_access(kb, user_id, kb_id, required=True)
             doc_id = uuid.uuid4().hex
-            chunks_count, resolved_title = _ingest_file(
-                kb, file, doc_id=doc_id, title=title, kb_id=kb_id
+            chunks, vectors, resolved_title = _prepare_chunks(
+                kb, file, doc_id=doc_id, title=title, kb_id=kb_id, ocr_mode=ocr_mode
+            )
+            _write_chunks(
+                kb, chunks=chunks, vectors=vectors, doc_id=doc_id,
+                doc_title=resolved_title, kb_id=kb_id,
+            )
+            kb["audit"].record(
+                user_id=user_id or "anonymous", action="ingest", target=doc_id,
+                detail={"kb_id": kb_id, "chunks": len(chunks), "title": resolved_title},
             )
             return {
                 "doc_id": doc_id,
-                "chunks": chunks_count,
+                "chunks": len(chunks),
                 "title": resolved_title,
                 "kb_id": kb_id,
             }
         except HTTPException:
             raise
+        except ValueError as exc:  # 不支持的文件类型 / 无扩展名等：参数问题，映射 400
+            raise HTTPException(status_code=400, detail=f"入库失败: {exc}") from exc
         except Exception as exc:
             logger.error("KB ingest failed: {}", exc)
             raise HTTPException(status_code=500, detail=f"入库失败: {exc}") from exc
@@ -599,24 +766,30 @@ def create_app() -> FastAPI:
         kb_id: str | None = None,
         user_id: str | None = None,
         x_api_token: str | None = Header(default=None),
+        limit: int = Query(default=100, ge=1, le=500),
+        offset: int = Query(default=0, ge=0),
     ) -> Dict[str, Any]:
-        """列出知识库文档（按 doc_id 聚合）。kb_id 指定时只列该库。
+        """列出知识库文档（按 doc_id 聚合），支持分页。kb_id 指定时只列该库。
 
         鉴权：X-Api-Token 头优先，user_id 直传兼容；按用户可访问范围过滤。
+        limit/offset 透传给 store（P2-1：响应体大小可控）。
         """
         try:
             kb = _get_kb()
             user_id = _resolve_user_id(kb, x_api_token, user_id)
             if user_id and kb_id:
                 _require_kb_access(kb, user_id, kb_id)
-            docs = kb["store"].list_docs(kb_id=kb_id)
+            docs, total = kb["store"].list_docs(kb_id=kb_id, limit=limit, offset=offset)
             if user_id and not kb_id:
                 allowed = set(kb["auth"].get_allowed_kbs(user_id))
                 docs = [d for d in docs if d.get("kb_id") in allowed]
             return {
                 "docs": docs,
+                "total": total,
                 "total_chunks": sum(d["chunks"] for d in docs),
                 "kb_id": kb_id,
+                "limit": limit,
+                "offset": offset,
             }
         except HTTPException:
             raise
@@ -661,6 +834,10 @@ def create_app() -> FastAPI:
             if doc_kb:
                 _require_kb_access(kb, user_id, doc_kb, required=True)
             deleted = kb["store"].delete_doc(doc_id)
+            kb["audit"].record(
+                user_id=user_id or "anonymous", action="delete", target=doc_id,
+                detail={"kb_id": doc_kb or "", "chunks_removed": deleted},
+            )
             return {"doc_id": doc_id, "deleted_chunks": deleted}
         except HTTPException:
             raise
@@ -675,30 +852,48 @@ def create_app() -> FastAPI:
         title: str | None = Form(default=None),
         kb_id: str = Form(default="default"),
         user_id: str | None = Form(default=None),
+        ocr_mode: Literal["local", "baidu", "auto"] = Form(default="local"),
         x_api_token: str | None = Header(default=None),
     ) -> Dict[str, Any]:
-        """更新文档：先删旧分块，再用原 doc_id 重新解析入库（保持 doc_id 稳定）。
+        """更新文档：先准备（解析+向量化）→ 原子 upsert → 清理 stale 旧块。
 
         保持 doc_id 不变 → 历史引用/书签不失效。kb_id 决定新归属（可跨库迁移）。
+        P0-2 原子化：解析/向量化失败时旧文档完好（先删旧块会丢数据）。
+        ocr_mode：见 /kb/ingest。
         鉴权：X-Api-Token 头优先，user_id 直传兼容；校验对目标 kb_id 的写权限。
         """
         try:
             kb = _get_kb()
             user_id = _resolve_user_id(kb, x_api_token, user_id)
             _require_kb_access(kb, user_id, kb_id, required=True)
-            deleted = kb["store"].delete_doc(doc_id)
-            chunks_count, resolved_title = _ingest_file(
-                kb, file, doc_id=doc_id, title=title, kb_id=kb_id
+            # 1. 准备（不碰旧数据；任何失败 → 旧文档完好）
+            chunks, vectors, resolved_title = _prepare_chunks(
+                kb, file, doc_id=doc_id, title=title, kb_id=kb_id, ocr_mode=ocr_mode
+            )
+            # 2. 原子写（upsert 同 id 覆盖，单次调用）
+            old_ids = set(kb["store"].get_doc_ids(doc_id))
+            new_ids = _write_chunks(
+                kb, chunks=chunks, vectors=vectors, doc_id=doc_id,
+                doc_title=resolved_title, kb_id=kb_id,
+            )
+            # 3. 清理 stale（分块数变少时多余的旧块；写后删，失败不影响新文档）
+            stale = [cid for cid in old_ids if cid not in set(new_ids)]
+            deleted = kb["store"].delete_chunk_ids(stale)
+            kb["audit"].record(
+                user_id=user_id or "anonymous", action="update", target=doc_id,
+                detail={"kb_id": kb_id, "chunks": len(chunks), "stale_removed": deleted},
             )
             return {
                 "doc_id": doc_id,
                 "deleted_chunks": deleted,
-                "chunks": chunks_count,
+                "chunks": len(chunks),
                 "title": resolved_title,
                 "kb_id": kb_id,
             }
         except HTTPException:
             raise
+        except ValueError as exc:  # 不支持的文件类型 / 无扩展名等：参数问题，映射 400
+            raise HTTPException(status_code=400, detail=f"更新失败: {exc}") from exc
         except Exception as exc:
             logger.error("KB update failed: {}", exc)
             raise HTTPException(status_code=500, detail=f"更新失败: {exc}") from exc
@@ -706,21 +901,35 @@ def create_app() -> FastAPI:
     # ==================== 用户与权限管理（RBAC，P3 §3.4）====================
 
     @app.post("/kb/users")
-    def kb_create_user(name: str = Form(...), role: str = Form(default="member")) -> Dict[str, Any]:
-        """新建用户，返回 user_id 与 API token。role: member | admin（admin 全通）。
+    def kb_create_user(
+        name: str = Form(...),
+        role: str = Form(default="member"),
+        x_api_key: str | None = Header(default=None),
+        x_api_token: str | None = Header(default=None),
+        admin_id: str | None = Query(default=None),
+    ) -> Dict[str, Any]:
+        """新建用户，返回 user_id 与 API token（明文仅此一次）。role: member | admin。
 
-        注：本接口是「bootstrap 入口」——首个 admin 由这里创建，故暂不挂鉴权；
-            生产环境需用 ADMIN_API_KEY 或内网防火墙保护（demo 级，见 auth.py 顶部说明）。
+        鉴权（P0-1）：
+        - 默认需管理员（X-API-Key 匹配 ADMIN_API_KEY 或 admin token/user_id）。
+        - KB_OPEN_SIGNUP=1 时允许自助注册，但角色强制 member，杜绝 admin 提权。
+        首个 admin 建议走 KB_BOOTSTRAP_ADMIN_TOKEN 环境变量引导，而非本接口。
         """
         try:
             kb = _get_kb()
-            uid = kb["auth"].create_user(name, role)
-            return {
-                "user_id": uid,
-                "name": name,
-                "role": role,
-                "api_token": kb["auth"].get_token(uid),
-            }
+            if _OPEN_SIGNUP:
+                # 自助注册：角色强制 member，防提权
+                if role != "member":
+                    raise HTTPException(status_code=403, detail="自助注册只能创建 member 账号")
+                operator = "anonymous"
+            else:
+                operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            uid, token = kb["auth"].create_user(name, role)
+            kb["audit"].record(
+                user_id=operator, action="create_user", target=uid,
+                detail={"name": name, "role": role},
+            )
+            return {"user_id": uid, "name": name, "role": role, "api_token": token}
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:
@@ -731,11 +940,12 @@ def create_app() -> FastAPI:
     def kb_list_users(
         admin_id: str | None = Query(default=None),
         x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
     ) -> Dict[str, Any]:
-        """列出所有用户及其可访问的知识库（需管理员）。token/user_id 均可作身份。"""
+        """列出所有用户及其可访问的知识库（需管理员）。X-API-Key 或 admin token/user_id 均可。"""
         try:
             kb = _get_kb()
-            _require_admin(kb, _resolve_user_id(kb, x_api_token, admin_id))
+            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
             return {"users": kb["auth"].list_users()}
         except HTTPException:
             raise
@@ -748,11 +958,12 @@ def create_app() -> FastAPI:
         user_id: str,
         admin_id: str | None = Query(default=None),
         x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
     ) -> Dict[str, Any]:
         """用户详情（含可访问的 kb 列表，需管理员）。"""
         try:
             kb = _get_kb()
-            _require_admin(kb, _resolve_user_id(kb, x_api_token, admin_id))
+            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
             user = kb["auth"].get_user(user_id)
             if not user:
                 raise HTTPException(status_code=404, detail="用户不存在")
@@ -769,14 +980,19 @@ def create_app() -> FastAPI:
         kb_id: str = Form(...),
         admin_id: str | None = Query(default=None),
         x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
     ) -> Dict[str, Any]:
         """授权用户访问某知识库（需管理员）。"""
         try:
             kb = _get_kb()
-            _require_admin(kb, _resolve_user_id(kb, x_api_token, admin_id))
+            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
             if not kb["auth"].get_user(user_id):
                 raise HTTPException(status_code=404, detail="用户不存在")
             kb["auth"].grant_access(user_id, kb_id)
+            kb["audit"].record(
+                user_id=admin_id or "admin", action="grant", target=user_id,
+                detail={"kb_id": kb_id},
+            )
             return {"user_id": user_id, "kb_id": kb_id, "granted": True}
         except HTTPException:
             raise
@@ -790,14 +1006,19 @@ def create_app() -> FastAPI:
         role: str = Form(...),
         admin_id: str | None = Query(default=None),
         x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
     ) -> Dict[str, Any]:
         """设置用户角色（member | admin，需管理员）。"""
         try:
             kb = _get_kb()
-            _require_admin(kb, _resolve_user_id(kb, x_api_token, admin_id))
+            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
             if not kb["auth"].get_user(user_id):
                 raise HTTPException(status_code=404, detail="用户不存在")
             ok = kb["auth"].set_role(user_id, role)
+            kb["audit"].record(
+                user_id=admin_id or "admin", action="set_role", target=user_id,
+                detail={"role": role},
+            )
             return {"user_id": user_id, "role": role, "updated": ok}
         except HTTPException:
             raise
@@ -813,12 +1034,17 @@ def create_app() -> FastAPI:
         kb_id: str = Form(...),
         admin_id: str | None = Query(default=None),
         x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
     ) -> Dict[str, Any]:
         """撤销用户对某知识库的访问权（需管理员）。"""
         try:
             kb = _get_kb()
-            _require_admin(kb, _resolve_user_id(kb, x_api_token, admin_id))
+            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
             removed = kb["auth"].revoke_access(user_id, kb_id)
+            kb["audit"].record(
+                user_id=admin_id or "admin", action="revoke", target=user_id,
+                detail={"kb_id": kb_id},
+            )
             return {"user_id": user_id, "kb_id": kb_id, "removed": removed}
         except HTTPException:
             raise
@@ -831,14 +1057,18 @@ def create_app() -> FastAPI:
         user_id: str,
         admin_id: str | None = Query(default=None),
         x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
     ) -> Dict[str, Any]:
         """重置用户 API token（需管理员；token 泄露时用，旧 token 立即失效）。"""
         try:
             kb = _get_kb()
-            _require_admin(kb, _resolve_user_id(kb, x_api_token, admin_id))
+            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
             if not kb["auth"].get_user(user_id):
                 raise HTTPException(status_code=404, detail="用户不存在")
             token = kb["auth"].reset_token(user_id)
+            kb["audit"].record(
+                user_id=admin_id or "admin", action="reset_token", target=user_id,
+            )
             return {"user_id": user_id, "api_token": token}
         except HTTPException:
             raise

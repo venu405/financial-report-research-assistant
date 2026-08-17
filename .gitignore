@@ -22,6 +22,9 @@ code/backend/.env
 *.db-wal
 **/_upload_*
 
+# 备份目录（backup_kb.py 输出，不入库）
+backups/
+
 # 深度研究笔记（运行时生成，可能含敏感网页抓取内容，禁止入库）
 **/notes/
 

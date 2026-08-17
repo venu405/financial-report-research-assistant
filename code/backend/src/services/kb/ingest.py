@@ -1,7 +1,7 @@
 """文档解析与分块（入库链路第一步）。
 
-支持格式（P1 起步）：Markdown / 纯文本 / PDF / Word(docx)
-后续可扩展：HTML、Excel、图片 OCR
+支持格式：Markdown / 纯文本 / PDF（含扫描件，走 OCR）/ Word(docx) / 图片（OCR）
+后续可扩展：HTML、Excel
 
 分块策略（P1 简单版）：按字符固定大小 + 重叠窗口，保留元数据。
 注意：分块质量直接影响检索质量——这是 RAG 的"GIGO"关卡。
@@ -16,7 +16,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_EXTENSIONS = {".md", ".txt", ".pdf", ".docx"}
+SUPPORTED_EXTENSIONS = {".md", ".txt", ".pdf", ".docx", ".png", ".jpg", ".jpeg", ".bmp", ".webp", ".jfif"}
+# 图片类型：直接走 OCR 识别图中文字（jfif 是 JPEG 的容器格式，常见于浏览器保存）
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".jfif"}
 
 
 @dataclass(kw_only=True)
@@ -33,8 +35,11 @@ class DocumentChunk:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
-def parse_document(path: Path) -> str:
-    """按扩展名解析文档 → 纯文本。解析失败抛异常（由上层降级处理）。"""
+def parse_document(path: Path, *, ocr_mode: str = "local") -> str:
+    """按扩展名解析文档 → 纯文本。解析失败抛异常（由上层降级处理）。
+
+    ocr_mode：图片/扫描 PDF 的 OCR 模式（local/baidu/auto，见 services.kb.ocr）。
+    """
     ext = path.suffix.lower()
     if ext not in SUPPORTED_EXTENSIONS:
         raise ValueError(f"不支持的文件类型: {ext}，支持 {sorted(SUPPORTED_EXTENSIONS)}")
@@ -42,21 +47,52 @@ def parse_document(path: Path) -> str:
     if ext == ".md" or ext == ".txt":
         return path.read_text(encoding="utf-8", errors="ignore")
     if ext == ".pdf":
-        return _parse_pdf(path)
+        return _parse_pdf(path, ocr_mode=ocr_mode)
     if ext == ".docx":
         return _parse_docx(path)
+    if ext in IMAGE_EXTENSIONS:
+        return _parse_image(path, ocr_mode=ocr_mode)
     raise ValueError(f"未实现的解析器: {ext}")
 
 
-def _parse_pdf(path: Path) -> str:
-    """PDF 解析：逐页提取文本，页间用换行分隔。"""
+def _parse_pdf(path: Path, *, ocr_mode: str = "local") -> str:
+    """PDF 解析：逐页提取文本，页间用换行分隔。
+
+    逐页混合处理：有文字层的页（文字版 PDF）用 pypdf 提取；
+    无文字层的页（扫描件/图片页）用 PyMuPDF 渲染成图片再 OCR。
+    这样文字版、扫描版、混合型 PDF 都能正确入库。
+    """
     from pypdf import PdfReader
 
     reader = PdfReader(str(path))
     pages: list[str] = []
-    for page in reader.pages:
-        pages.append(page.extract_text() or "")
+    for i, page in enumerate(reader.pages):
+        text = page.extract_text() or ""
+        if text.strip():
+            pages.append(text)
+        else:
+            pages.append(_ocr_pdf_page(str(path), i, ocr_mode=ocr_mode))
     return "\n\n".join(pages)
+
+
+def _ocr_pdf_page(pdf_path: str, page_index: int, *, ocr_mode: str = "local") -> str:
+    """把 PDF 的某一页渲染成 PNG 图片，再用 OCR 识别文字。"""
+    from services.kb.ocr import ocr_image
+
+    import pymupdf  # PyMuPDF
+
+    with pymupdf.open(pdf_path) as doc:
+        page = doc.load_page(page_index)
+        pix = page.get_pixmap(dpi=200)
+        png_bytes = pix.tobytes("png")
+    return ocr_image(png_bytes, mode=ocr_mode)
+
+
+def _parse_image(path: Path, *, ocr_mode: str = "local") -> str:
+    """图片解析：直接 OCR 识别图中文字。"""
+    from services.kb.ocr import ocr_image
+
+    return ocr_image(path, mode=ocr_mode)
 
 
 def _parse_docx(path: Path) -> str:
@@ -110,9 +146,13 @@ def build_chunks(
     chunk_size: int = 800,
     overlap: int = 100,
     kb_id: str = "default",
+    ocr_mode: str = "local",
 ) -> list[DocumentChunk]:
-    """完整分块管线：解析 → 分块 → 挂元数据。kb_id 标记所属知识库（P3）。"""
-    text = parse_document(path)
+    """完整分块管线：解析 → 分块 → 挂元数据。kb_id 标记所属知识库（P3）。
+
+    ocr_mode：图片/扫描 PDF 的 OCR 模式（local/baidu/auto），透传给 parse_document。
+    """
+    text = parse_document(path, ocr_mode=ocr_mode)
     parts = chunk_text(text, chunk_size=chunk_size, overlap=overlap)
     return [
         DocumentChunk(

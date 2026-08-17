@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import logging
+from threading import Lock
 from typing import Any
 
 import chromadb
@@ -34,6 +35,21 @@ class VectorStore:
         self._collection_name = collection_name
         # 🟡12：迁移标记——实例存活期间已跑过 migrate_default_kb_id 就不再全表扫
         self._migration_done = False
+        # P2-1：写操作自增序号——retriever 比对它判断 BM25 缓存是否失效，
+        # 避免每次 ask 都调 count() 全表扫 Chroma 取 ids
+        self._mutation_seq = 0
+        self._seq_lock = Lock()
+
+    def _bump_seq(self) -> None:
+        """写操作后自增序号（表示"数据变了，缓存需重建"）。"""
+        with self._seq_lock:
+            self._mutation_seq += 1
+
+    @property
+    def mutation_seq(self) -> int:
+        """当前写操作序号（retriever 缓存比对用）。"""
+        with self._seq_lock:
+            return self._mutation_seq
 
     @staticmethod
     def _merge_where(
@@ -81,12 +97,15 @@ class VectorStore:
                 }
             )
 
-        self._collection.add(
+        # 用 upsert（id 幂等）：新建无冲突，文档更新时同 id 直接覆盖，
+        # 且单次调用原子——更新失败不会留下半写状态（P0-2 原子更新依赖这一点）。
+        self._collection.upsert(
             ids=ids,
             embeddings=embeddings,
             documents=texts,
             metadatas=metadatas,
         )
+        self._bump_seq()
         logger.info("Chroma 写入 %d 个分块（doc=%s, kb=%s）", len(ids), doc_id, kb_id)
         return ids
 
@@ -133,18 +152,28 @@ class VectorStore:
             )
         return items
 
+    def get_doc_ids(self, doc_id: str) -> list[str]:
+        """查文档全部 chunk_id（原子更新时算"需要清理的旧块"用）。"""
+        result = self._collection.get(where={"doc_id": doc_id}, include=[])
+        return result.get("ids", [])
+
+    def delete_chunk_ids(self, ids: list[str]) -> int:
+        """按 chunk_id 列表删除（更新时清理旧块用）。返回删除数量。"""
+        if not ids:
+            return 0
+        self._collection.delete(ids=ids)
+        self._bump_seq()
+        logger.info("Chroma 删除 %d 个分块", len(ids))
+        return len(ids)
+
     def delete_doc(self, doc_id: str) -> int:
-        """按文档删除全部分块（文档更新/删除时用）。返回删除数量。
+        """按文档删除全部分块（文档删除时用）。返回删除数量。
 
         按 doc_id 删天然跨库安全——doc_id 全局唯一。
         """
         # 🟠11：只取 ids，不拉 documents/metadatas（默认 include 会带回全部内容）
-        result = self._collection.get(where={"doc_id": doc_id}, include=[])
-        ids = result.get("ids", [])
-        if ids:
-            self._collection.delete(ids=ids)
-            logger.info("Chroma 删除文档 %s 的 %d 个分块", doc_id, len(ids))
-        return len(ids)
+        ids = self.get_doc_ids(doc_id)
+        return self.delete_chunk_ids(ids)
 
     def get_doc_kb_id(self, doc_id: str) -> str | None:
         """查文档所属知识库（删除前鉴权用）。找不到返回 None。"""
@@ -192,8 +221,18 @@ class VectorStore:
             )
         return items
 
-    def list_docs(self, *, kb_id: str | None = None) -> list[dict[str, Any]]:
-        """列出文档元信息（按 doc_id 聚合）。kb_id 指定时只列该库。"""
+    def list_docs(
+        self,
+        *,
+        kb_id: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """列出文档元信息（按 doc_id 聚合），支持分页。返回 (docs, total)。
+
+        kb_id 指定时只列该库。limit/offset 在聚合后切片（响应体大小可控）；
+        超大库（>10 万 chunk）的深层优化留给索引层，接口契约保持不变。
+        """
         kwargs: dict[str, Any] = {"include": ["metadatas"]}
         merged = self._merge_where(None, kb_id)
         if merged:
@@ -217,7 +256,8 @@ class VectorStore:
                     "chunks": 0,
                 }
             docs[did]["chunks"] += 1
-        return list(docs.values())
+        all_docs = list(docs.values())
+        return all_docs[offset : offset + limit], len(all_docs)
 
     def list_kbs(self) -> list[str]:
         """列出所有出现过的 kb_id（去重）——知识库管理界面用。"""
@@ -252,5 +292,6 @@ class VectorStore:
                 fix_metas.append(new_meta)
         if fix_ids:
             self._collection.update(ids=fix_ids, metadatas=fix_metas)
+            self._bump_seq()
             logger.info("迁移：给 %d 个历史 chunk 补 kb_id=%s", len(fix_ids), kb_id)
         return len(fix_ids)

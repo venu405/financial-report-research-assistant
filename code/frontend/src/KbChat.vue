@@ -77,6 +77,14 @@ async function loadDocs() {
 async function onUpload(event: Event) {
   const file = (event.target as HTMLInputElement).files?.[0];
   if (!file) return;
+  // P2-3：前端预检文件大小（后端 413 之前先拦一道，避免上传了才发现超限）
+  const maxMB = 50;
+  if (file.size > maxMB * 1024 * 1024) {
+    uploadErr.value = `文件超过 ${maxMB}MB 限制（当前 ${(file.size / 1024 / 1024).toFixed(1)}MB）`;
+    uploadMsg.value = "";
+    (event.target as HTMLInputElement).value = "";
+    return;
+  }
   uploadMsg.value = `正在上传 ${file.name}...`;
   uploadErr.value = "";
   try {
@@ -97,13 +105,29 @@ async function onUpload(event: Event) {
 }
 
 async function onDelete(docId: string) {
+  // P2-3：删除二次确认，防误删不可恢复的数据
+  if (!window.confirm(`确定删除文档 ${docId}？此操作不可恢复。`)) return;
   try {
     const q = !isTokenAuth() && userToken.value ? `?user_id=${encodeURIComponent(userToken.value)}` : "";
-    await fetch(`${baseURL}/kb/docs/${docId}${q}`, { method: "DELETE", headers: authHeaders() });
+    const resp = await fetch(`${baseURL}/kb/docs/${docId}${q}`, { method: "DELETE", headers: authHeaders() });
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      throw new Error(data.detail || `HTTP ${resp.status}`);
+    }
     loadDocs();
   } catch (e) {
     uploadErr.value = `删除失败: ${(e as Error).message}`;
   }
+}
+
+// P2-3：登出——清除本地 token，返回未登录态
+function logout() {
+  userToken.value = "";
+  localStorage.removeItem("kb_api_token");
+  localStorage.removeItem("kb_user_id");
+  messages.value = [];
+  loadKbs();
+  loadDocs();
 }
 
 // 更新文档：选中文件后走 PUT（先删旧分块，再用原 doc_id 重新入库）
@@ -214,6 +238,7 @@ loadDocs();
         <span>API Token（问答可留空；上传/删除/更新需填。创建用户时下发，kb_ 开头）</span>
         <input v-model="userToken" placeholder="如 kb_3af2...（写操作需此身份且有库权限）" @change="onSwitchKb" />
       </label>
+      <button v-if="userToken" class="logout-btn" @click="logout">登出</button>
     </section>
 
     <!-- 文档管理区 -->
@@ -295,6 +320,11 @@ loadDocs();
 .kb-selector select, .kb-selector input {
   padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; outline: none;
 }
+.logout-btn {
+  padding: 8px 14px; border: 1px solid #dc2626; color: #dc2626; background: #fff;
+  border-radius: 8px; cursor: pointer; font-size: 13px; white-space: nowrap;
+}
+.logout-btn:hover { background: #fef2f2; }
 .upload-card, .chat-card {
   background: #fff; border: 1px solid #e5e7eb; border-radius: 12px;
   padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.06);

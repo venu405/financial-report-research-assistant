@@ -67,20 +67,22 @@ class HybridRetriever:
         # 按知识库分别缓存 BM25 索引（多库隔离，避免跨库串数据）
         self._bm25: dict[str, BM25Okapi | None] = {}
         self._corpus: dict[str, list[dict[str, Any]]] = {}
-        self._built_count: dict[str, int | None] = {}
+        # P2-1：记录每个库上次构建时的写序号（mutation_seq），替代 count() 全表扫描
+        self._seq_snapshot: dict[str, int] = {}
 
     def _rebuild_if_needed(self, kb_id: str) -> None:
-        """文档增删后（该库 count 变化）重建该库的 BM25 索引。"""
-        try:
-            current = self._store.count(kb_id=kb_id)
-        except Exception:
-            current = None
-        if kb_id not in self._bm25 or current != self._built_count.get(kb_id):
+        """写序号变化后重建该库 BM25 索引（内存 seq 比对，跳过 count 全表扫）。
+
+        局限：seq 是全局的，其它库写入也会触发本库重建（多 worker 下以本地写为准）。
+        相比每次 ask 全表 get ids，重建代价仍小得多，且绝对正确。
+        """
+        current_seq = self._store.mutation_seq
+        if kb_id not in self._bm25 or current_seq != self._seq_snapshot.get(kb_id):
             corpus = self._store.all_items(kb_id=kb_id)
             tokenized = [_tokenize(c["text"]) for c in corpus]
             self._bm25[kb_id] = BM25Okapi(tokenized) if tokenized else None
             self._corpus[kb_id] = corpus
-            self._built_count[kb_id] = current
+            self._seq_snapshot[kb_id] = current_seq
             logger.info("BM25 索引重建（kb=%s）：%d 个分块", kb_id, len(corpus))
 
     def search(
