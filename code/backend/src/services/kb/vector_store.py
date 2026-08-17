@@ -35,21 +35,23 @@ class VectorStore:
         self._collection_name = collection_name
         # 🟡12：迁移标记——实例存活期间已跑过 migrate_default_kb_id 就不再全表扫
         self._migration_done = False
-        # P2-1：写操作自增序号——retriever 比对它判断 BM25 缓存是否失效，
-        # 避免每次 ask 都调 count() 全表扫 Chroma 取 ids
-        self._mutation_seq = 0
+        # P2-1/P1 复核：写操作自增序号，**按 kb_id 维护**——retriever 比对它判断
+        # 该库 BM25 缓存是否失效。之前是全局 seq（任何库写都触发所有库重建），
+        # 改为按库后只有本库写入才触发本库重建。
+        self._mutation_seq: dict[str, int] = {}
         self._seq_lock = Lock()
 
-    def _bump_seq(self) -> None:
-        """写操作后自增序号（表示"数据变了，缓存需重建"）。"""
+    def _bump_seq(self, kb_id: str | None) -> None:
+        """写操作后自增该 kb 的序号。kb_id 为 None 时用全局桶（兜底）。"""
+        key = kb_id or "__global__"
         with self._seq_lock:
-            self._mutation_seq += 1
+            self._mutation_seq[key] = self._mutation_seq.get(key, 0) + 1
 
-    @property
-    def mutation_seq(self) -> int:
-        """当前写操作序号（retriever 缓存比对用）。"""
+    def mutation_seq(self, kb_id: str | None) -> int:
+        """该 kb 的写序号（retriever 缓存比对用）。"""
+        key = kb_id or "__global__"
         with self._seq_lock:
-            return self._mutation_seq
+            return self._mutation_seq.get(key, 0)
 
     @staticmethod
     def _merge_where(
@@ -77,8 +79,12 @@ class VectorStore:
         source_type: str,
         chunk_indices: list[int],
         kb_id: str = DEFAULT_KB_ID,
+        content_hash: str | None = None,
     ) -> list[str]:
-        """批量写入分块。返回生成的 chunk_id 列表（供引用溯源）。"""
+        """批量写入分块。返回生成的 chunk_id 列表（供引用溯源）。
+
+        content_hash（P1 复核）：文件内容 SHA-256，写进 metadata 供去重查询。
+        """
         if not embeddings:
             return []
 
@@ -87,15 +93,16 @@ class VectorStore:
         for i in range(len(embeddings)):
             cid = f"{doc_id}-{chunk_indices[i]}"
             ids.append(cid)
-            metadatas.append(
-                {
-                    "doc_id": doc_id,
-                    "doc_title": doc_title,
-                    "source_type": source_type,
-                    "chunk_index": chunk_indices[i],
-                    "kb_id": kb_id,
-                }
-            )
+            meta = {
+                "doc_id": doc_id,
+                "doc_title": doc_title,
+                "source_type": source_type,
+                "chunk_index": chunk_indices[i],
+                "kb_id": kb_id,
+            }
+            if content_hash:
+                meta["content_hash"] = content_hash
+            metadatas.append(meta)
 
         # 用 upsert（id 幂等）：新建无冲突，文档更新时同 id 直接覆盖，
         # 且单次调用原子——更新失败不会留下半写状态（P0-2 原子更新依赖这一点）。
@@ -105,9 +112,21 @@ class VectorStore:
             documents=texts,
             metadatas=metadatas,
         )
-        self._bump_seq()
+        self._bump_seq(kb_id)
         logger.info("Chroma 写入 %d 个分块（doc=%s, kb=%s）", len(ids), doc_id, kb_id)
         return ids
+
+    def find_doc_by_hash(self, content_hash: str) -> str | None:
+        """按内容 hash 查已存在的 doc_id（去重用）。找不到返回 None。"""
+        if not content_hash:
+            return None
+        result = self._collection.get(
+            where={"content_hash": content_hash}, include=["metadatas"], limit=1
+        )
+        for meta in result.get("metadatas", []) or []:
+            if meta and meta.get("doc_id"):
+                return meta["doc_id"]
+        return None
 
     def search(
         self,
@@ -157,12 +176,15 @@ class VectorStore:
         result = self._collection.get(where={"doc_id": doc_id}, include=[])
         return result.get("ids", [])
 
-    def delete_chunk_ids(self, ids: list[str]) -> int:
-        """按 chunk_id 列表删除（更新时清理旧块用）。返回删除数量。"""
+    def delete_chunk_ids(self, ids: list[str], kb_id: str | None = None) -> int:
+        """按 chunk_id 列表删除（更新时清理旧块用）。返回删除数量。
+
+        kb_id 已知时传入（精确 bump 该库 seq）；未知（None）用全局桶兜底。
+        """
         if not ids:
             return 0
         self._collection.delete(ids=ids)
-        self._bump_seq()
+        self._bump_seq(kb_id)
         logger.info("Chroma 删除 %d 个分块", len(ids))
         return len(ids)
 
@@ -173,7 +195,8 @@ class VectorStore:
         """
         # 🟠11：只取 ids，不拉 documents/metadatas（默认 include 会带回全部内容）
         ids = self.get_doc_ids(doc_id)
-        return self.delete_chunk_ids(ids)
+        # 先查所属库，精确 bump 该库 seq（P1 复核：按库维护写序号）
+        return self.delete_chunk_ids(ids, kb_id=self.get_doc_kb_id(doc_id))
 
     def get_doc_kb_id(self, doc_id: str) -> str | None:
         """查文档所属知识库（删除前鉴权用）。找不到返回 None。"""
@@ -292,6 +315,6 @@ class VectorStore:
                 fix_metas.append(new_meta)
         if fix_ids:
             self._collection.update(ids=fix_ids, metadatas=fix_metas)
-            self._bump_seq()
+            self._bump_seq(kb_id)
             logger.info("迁移：给 %d 个历史 chunk 补 kb_id=%s", len(fix_ids), kb_id)
         return len(fix_ids)

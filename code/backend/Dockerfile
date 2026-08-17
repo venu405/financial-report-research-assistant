@@ -17,6 +17,7 @@ WORKDIR /app/src
 EXPOSE 8000
 
 # 启动后端（main.py 在 src/，WORKDIR 已切到 src）
-# P2-3：WEB_CONCURRENCY 环境变量控制 worker 数（默认 1）。
-# 注意：多 worker 下进程内缓存（BM25/指标）各自独立，SQLite 已用 WAL+busy_timeout 兜底。
-CMD ["sh", "-c", "python -m uvicorn main:app --host 0.0.0.0 --port 8000 --workers ${WEB_CONCURRENCY:-1}"]
+# 单进程定位（P0）：SQLite 三连接 + BM25 进程内缓存撑不起多 worker——
+# 多 worker 会 database is locked + 检索索引互相不可见。真实扩容需换
+# PostgreSQL + 共享检索索引（另立专项），在此之前锁定单进程。
+CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

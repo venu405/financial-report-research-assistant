@@ -74,3 +74,15 @@ class EmbeddingClient:
         if not result:
             raise RuntimeError(f"Embedding 返回为空（model={self._model})")
         return result[0]
+
+    def ping(self) -> bool:
+        """探活：embedding 后端是否可达（短超时，不实际推理）。
+
+        Ollama 用 /api/tags（列模型，零 GPU 开销）；失败/超时返回 False。
+        /readyz 就绪探针用——embedding 挂了 ask 会 500，必须提前探出来。
+        """
+        try:
+            resp = httpx.get(f"{self._base_url}/api/tags", timeout=3.0)
+            return resp.status_code == 200
+        except Exception:
+            return False

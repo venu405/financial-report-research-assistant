@@ -214,6 +214,90 @@ async function onSend() {
   }
 }
 
+// ---------- 管理页（P2：用户/角色/审计界面化） ----------
+const showAdmin = ref(false);
+const adminKey = ref(localStorage.getItem("kb_admin_key") || "");
+const users = ref<{ user_id: string; name: string; role: string; allowed_kbs: string[]; created_at?: string }[]>([]);
+const auditLogs = ref<{ ts: string; user_id: string; action: string; target: string; detail: string }[]>([]);
+const newUserName = ref("");
+const newUserRole = ref("member");
+const adminMsg = ref("");
+const adminErr = ref("");
+
+// 管理接口鉴权：X-API-Key（ADMIN_API_KEY）或已登录的 admin token，二选一
+function adminHeaders(): Record<string, string> {
+  const h: Record<string, string> = {};
+  if (adminKey.value) h["X-API-Key"] = adminKey.value;
+  if (isTokenAuth()) h["X-Api-Token"] = userToken.value;
+  return h;
+}
+
+async function loadUsers() {
+  try {
+    const resp = await fetch(`${baseURL}/kb/users`, { headers: adminHeaders() });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    users.value = data.users || [];
+  } catch (e) {
+    adminErr.value = `加载用户失败: ${(e as Error).message}`;
+  }
+}
+
+async function createUser() {
+  if (!newUserName.value) return;
+  adminErr.value = ""; adminMsg.value = "";
+  try {
+    const form = new FormData();
+    form.append("name", newUserName.value);
+    form.append("role", newUserRole.value);
+    const resp = await fetch(`${baseURL}/kb/users`, { method: "POST", body: form, headers: adminHeaders() });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
+    adminMsg.value = `已创建用户「${data.name}」，API Token（仅显示一次，请复制）: ${data.api_token}`;
+    newUserName.value = "";
+    loadUsers();
+  } catch (e) {
+    adminErr.value = `建用户失败: ${(e as Error).message}`;
+  }
+}
+
+async function setRole(userId: string, role: string) {
+  adminErr.value = ""; adminMsg.value = "";
+  try {
+    const form = new FormData();
+    form.append("role", role);
+    const resp = await fetch(`${baseURL}/kb/users/${userId}/role`, { method: "POST", body: form, headers: adminHeaders() });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    adminMsg.value = `已更新角色为 ${role}`;
+    loadUsers();
+  } catch (e) {
+    adminErr.value = `设置角色失败: ${(e as Error).message}`;
+  }
+}
+
+async function loadAudit() {
+  adminErr.value = "";
+  try {
+    const resp = await fetch(`${baseURL}/admin/audit?limit=100`, { headers: adminHeaders() });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    auditLogs.value = data.entries || [];
+  } catch (e) {
+    adminErr.value = `加载审计日志失败: ${(e as Error).message}`;
+  }
+}
+
+function openAdmin() {
+  showAdmin.value = true;
+  adminKey.value = localStorage.getItem("kb_admin_key") || adminKey.value;
+  loadUsers();
+  loadAudit();
+}
+function closeAdmin() {
+  showAdmin.value = false;
+  localStorage.setItem("kb_admin_key", adminKey.value);
+}
+
 loadKbs();
 loadDocs();
 </script>
@@ -223,9 +307,70 @@ loadDocs();
     <header class="kb-header">
       <h1>📚 企业知识库管理</h1>
       <p class="sub">上传文档 → 向量化入库 → LangGraph 智能问答（带引用）</p>
+      <button class="admin-toggle" @click="showAdmin ? closeAdmin() : openAdmin()">
+        {{ showAdmin ? '返回问答' : '⚙️ 管理' }}
+      </button>
     </header>
 
+    <!-- 管理页（P2：用户/角色/审计，需 admin 鉴权） -->
+    <div v-if="showAdmin" class="admin-page">
+      <section class="upload-card">
+        <h3>🔐 管理员鉴权</h3>
+        <label class="field">
+          <span>Admin API Key（X-API-Key，配了 ADMIN_API_KEY 时用；或用已登录的 admin token）</span>
+          <input v-model="adminKey" placeholder="留空则用上方 API Token 的 admin 身份" />
+        </label>
+      </section>
+
+      <section class="upload-card">
+        <h3>👤 新建用户</h3>
+        <div class="admin-row">
+          <input v-model="newUserName" placeholder="用户名" />
+          <select v-model="newUserRole">
+            <option value="member">member（读写）</option>
+            <option value="readonly">readonly（只读）</option>
+            <option value="admin">admin（全通）</option>
+          </select>
+          <button class="file-btn" @click="createUser">创建</button>
+        </div>
+        <p v-if="adminMsg" class="admin-msg">{{ adminMsg }}</p>
+        <p v-if="adminErr" class="admin-err">{{ adminErr }}</p>
+      </section>
+
+      <section class="upload-card">
+        <h3>👥 用户列表</h3>
+        <div v-if="users.length" class="admin-user-list">
+          <div v-for="u in users" :key="u.user_id" class="admin-user">
+            <span class="admin-name">{{ u.name }}</span>
+            <span class="doc-kb">{{ u.role }}</span>
+            <span class="doc-chunks">可访问: {{ (u.allowed_kbs || []).join(', ') || '（无）' }}</span>
+            <select :value="u.role" @change="setRole(u.user_id, ($event.target as HTMLSelectElement).value)">
+              <option value="member">member</option>
+              <option value="readonly">readonly</option>
+              <option value="admin">admin</option>
+            </select>
+          </div>
+        </div>
+        <p v-else class="empty">暂无用户（可先在上方创建，或设 KB_BOOTSTRAP_ADMIN_TOKEN 引导）</p>
+      </section>
+
+      <section class="upload-card">
+        <h3>📋 审计日志（最近 100 条）</h3>
+        <button class="upd-btn" @click="loadAudit">刷新</button>
+        <div v-if="auditLogs.length" class="admin-audit">
+          <div v-for="(a, i) in auditLogs" :key="i" class="admin-audit-item">
+            <span class="doc-chunks">{{ (a.ts || '').slice(0, 19) }}</span>
+            <span class="doc-kb">{{ a.action }}</span>
+            <span class="admin-name">{{ a.user_id }}</span>
+            <span class="doc-chunks">→ {{ a.target }}</span>
+          </div>
+        </div>
+        <p v-else class="empty">暂无审计记录</p>
+      </section>
+    </div>
+
     <!-- 知识库 + 用户选择（RBAC） -->
+    <div v-if="!showAdmin">
     <section class="kb-selector">
       <label class="field">
         <span>知识库</span>
@@ -299,6 +444,7 @@ loadDocs();
         <button :disabled="loading" @click="onSend">发送</button>
       </div>
     </section>
+    </div>
   </div>
 </template>
 
@@ -325,6 +471,36 @@ loadDocs();
   border-radius: 8px; cursor: pointer; font-size: 13px; white-space: nowrap;
 }
 .logout-btn:hover { background: #fef2f2; }
+.admin-toggle {
+  padding: 6px 14px; border: 1px solid #2563eb; color: #2563eb; background: #fff;
+  border-radius: 8px; cursor: pointer; font-size: 13px;
+}
+.admin-toggle:hover { background: #eff6ff; }
+.admin-page h3 { margin: 0 0 10px; font-size: 15px; }
+.admin-page .field { display: flex; flex-direction: column; gap: 4px; }
+.admin-page .field span { font-size: 12px; color: #6b7280; }
+.admin-page .field input {
+  padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; outline: none;
+}
+.admin-row { display: flex; gap: 8px; }
+.admin-row input, .admin-row select {
+  padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; outline: none;
+}
+.admin-row input { flex: 1; }
+.admin-msg { font-size: 12px; color: #16a34a; margin: 8px 0 0; word-break: break-all; }
+.admin-err { font-size: 12px; color: #dc2626; margin: 8px 0 0; }
+.admin-user-list { display: flex; flex-direction: column; gap: 6px; }
+.admin-user {
+  display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+  background: #f9fafb; border-radius: 6px; font-size: 13px;
+}
+.admin-user select { padding: 3px 6px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 12px; }
+.admin-name { font-weight: 600; }
+.admin-audit { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.admin-audit-item {
+  display: flex; align-items: center; gap: 8px; padding: 4px 8px;
+  background: #f9fafb; border-radius: 6px; font-size: 12px;
+}
 .upload-card, .chat-card {
   background: #fff; border: 1px solid #e5e7eb; border-radius: 12px;
   padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.06);

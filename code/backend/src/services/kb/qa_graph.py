@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import uuid
 from typing import Any, TypedDict
 
@@ -32,6 +33,10 @@ logger = logging.getLogger(__name__)
 
 MAX_RETRY = 1  # 生成后评估不达标，最多重试 1 次
 
+# LLM 生成调用超时（秒）：Ollama/网络 hang 时不拖死请求，及时报错让上层处理。
+# 可用 LLM_TIMEOUT 环境变量覆盖（与 HelloAgents 一致，默认 60）。
+_LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "60") or 60)
+
 
 def _llm_invoke(llm, messages: list[dict[str, str]], model: str = "deepseek-chat") -> str:
     """统一 LLM 调用：兼容 OpenAI 客户端与 LangChain 风格 LLM。
@@ -40,6 +45,7 @@ def _llm_invoke(llm, messages: list[dict[str, str]], model: str = "deepseek-chat
     - LangChain 风格（mock/其他）：llm.invoke(messages)
 
     model 显式传参（P1 修复：去掉 llm._model 私有属性 hack，openai 升级不失效）。
+    timeout（P0）：防 LLM/网络 hang 拖死请求。
     """
     if hasattr(llm, "invoke"):
         return str(llm.invoke(messages)).strip()
@@ -49,6 +55,7 @@ def _llm_invoke(llm, messages: list[dict[str, str]], model: str = "deepseek-chat
         messages=messages,
         temperature=0.0,
         max_tokens=1024,
+        timeout=_LLM_TIMEOUT,
     )
     return (resp.choices[0].message.content or "").strip()
 
@@ -161,11 +168,24 @@ def build_qa_graph(
         )
         answer = _llm_invoke(llm, [{"role": "user", "content": prompt}], model=model)
 
-        # 引用元数据：与答案里的 [n] 对应
-        all_citations = [
-            {"index": i + 1, "chunk_id": h.get("chunk_id", ""), "text": h.get("text", "")[:120], "metadata": h.get("metadata", {})}
-            for i, h in enumerate(state.get("contexts", []))
-        ]
+        # 引用元数据：与答案里的 [n] 对应。
+        # P2：平铺定位字段（doc_title/chunk_index/page），前端可直接跳转原文，不用钻 metadata。
+        all_citations = []
+        for i, h in enumerate(state.get("contexts", [])):
+            meta = h.get("metadata", {}) or {}
+            all_citations.append(
+                {
+                    "index": i + 1,
+                    "chunk_id": h.get("chunk_id", ""),
+                    "text": h.get("text", "")[:120],
+                    "doc_id": meta.get("doc_id", ""),
+                    "doc_title": meta.get("doc_title", ""),
+                    "chunk_index": meta.get("chunk_index"),
+                    "page": meta.get("page"),  # PDF 分页时记录（无则为 None）
+                    "source_type": meta.get("source_type", ""),
+                    "metadata": meta,
+                }
+            )
         # P2 修复：只保留答案里实际引用的 [n] 且在有效范围内（防 LLM 编 [9] 悬空）
         import re as _re
 
@@ -305,4 +325,47 @@ def run_qa(
         "contexts": result.get("contexts", []),
         "retries": result.get("retries", 0),
         "score": result.get("score", 0),
+    }
+
+
+def run_qa_stream(
+    graph: Any,
+    *,
+    question: str,
+    history: list[dict[str, str]] | None = None,
+    kb_id: str = "default",
+    thread_id: str | None = None,
+) -> Any:
+    """流式执行问答图：yield 节点进度事件 + 最终结果。
+
+    P2：/kb/ask/stream 用——同步 ask 用户干等 10s+ 无反馈，这里按节点
+    （rewrite→retrieve→generate→evaluate）推送进度，SSE 前端可实时展示。
+    """
+    initial: QaState = {
+        "question": question,
+        "kb_id": kb_id,
+        "rewritten": "",
+        "history": history or [],
+        "contexts": [],
+        "passages": [],
+        "answer": "",
+        "citations": [],
+        "retries": 0,
+        "low_quality": False,
+        "score": 0,
+    }
+    config = {"configurable": {"thread_id": thread_id or uuid.uuid4().hex}}
+    final_state: dict[str, Any] = dict(initial)
+    for event in graph.stream(initial, config=config, stream_mode="updates"):
+        node = list(event.keys())[0]
+        update = event[node]
+        final_state.update(update)
+        yield {"type": "node", "node": node, "answer": final_state.get("answer", "")}
+    yield {
+        "type": "final",
+        "answer": final_state.get("answer", ""),
+        "citations": final_state.get("citations", []),
+        "contexts": final_state.get("contexts", []),
+        "retries": final_state.get("retries", 0),
+        "score": final_state.get("score", 0),
     }

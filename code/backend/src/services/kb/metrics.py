@@ -78,6 +78,24 @@ class _Metrics:
             self._counts.clear()
             self._timings.clear()
 
+    def to_prometheus(self) -> str:
+        """导出 Prometheus 文本格式（供 /metrics 端点抓取）。
+
+        counts → counter（单调递增）；timings 派生值（count/avg/p50/p95/max）→ gauge。
+        """
+        snap = self.snapshot()
+        lines: list[str] = []
+        timing_suffixes = (".count", ".avg_ms", ".p50_ms", ".p95_ms", ".max_ms")
+        for k, v in sorted(snap.items()):
+            metric_name = k.replace(".", "_")
+            if any(k.endswith(s) for s in timing_suffixes):
+                lines.append(f"# TYPE {metric_name} gauge")
+                lines.append(f"{metric_name} {v}")
+            else:
+                lines.append(f"# TYPE {metric_name} counter")
+                lines.append(f"{metric_name} {v}")
+        return "\n".join(lines) + ("\n" if lines else "")
+
 
 # 进程内单例
 global_metrics = _Metrics()

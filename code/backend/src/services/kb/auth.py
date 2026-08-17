@@ -62,7 +62,7 @@ def _default_ttl_days() -> int | None:
 class AuthStore:
     """用户与知识库访问权限（SQLite）。"""
 
-    VALID_ROLES = {"member", "admin"}
+    VALID_ROLES = {"member", "admin", "readonly"}
 
     def __init__(self, db_path: str | Path, token_ttl_days: int | None = None):
         self._ttl_days = _default_ttl_days() if token_ttl_days is None else token_ttl_days
@@ -318,7 +318,7 @@ class AuthStore:
         return [r[0] for r in rows]
 
     def can_access(self, user_id: str, kb_id: str) -> bool:
-        """校验用户是否能访问指定知识库。admin 全通。"""
+        """校验用户是否能访问指定知识库（读权限）。admin 全通。"""
         if self.is_admin(user_id):
             return True
         row = self._conn.execute(
@@ -326,3 +326,19 @@ class AuthStore:
             (user_id, kb_id),
         ).fetchone()
         return row is not None
+
+    def can_write(self, user_id: str, kb_id: str) -> bool:
+        """校验用户是否有指定知识库的写权限（ingest/update/delete）。
+
+        readonly 角色只能读不能写；member/admin 有读也有写。
+        """
+        role = self._get_role(user_id)
+        if role == "readonly":
+            return False
+        return self.can_access(user_id, kb_id)
+
+    def _get_role(self, user_id: str) -> str:
+        row = self._conn.execute(
+            "SELECT role FROM users WHERE user_id=?", (user_id,)
+        ).fetchone()
+        return row[0] if row else "member"

@@ -57,13 +57,40 @@ logging.basicConfig(handlers=[_InterceptHandler()], level=logging.INFO, force=Tr
 # 否则业务日志会同时走「默认 sink + 自定义 sink」打印两遍。
 logger.remove()
 
-# 唯一的控制台 handler（level=INFO 会自动涵盖 ERROR 及以上，不再单独加 ERROR handler 导致重复打印）
+# 控制台 handler（level=INFO 会自动涵盖 ERROR 及以上）
 logger.add(
     sys.stderr,
     level="INFO",
     format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <4}</level> | {extra[request_id]} | <cyan>{function}</cyan> | <cyan>{file}:{line}</cyan> | <level>{message}</level>",
     colorize=True,
 )
+
+# P0：日志落盘——文件 + 轮转（生产排障/审计需要持久化日志，stderr 会随容器重启丢失）
+# 默认写到 backend/logs/app.log，10MB 轮转，保留 7 天；KB_LOG_DIR 可覆盖目录。
+_LOG_DIR = Path(__file__).resolve().parent.parent / os.getenv("KB_LOG_DIR", "logs")
+_LOG_DIR.mkdir(parents=True, exist_ok=True)
+logger.add(
+    _LOG_DIR / "app.log",
+    level=os.getenv("KB_LOG_LEVEL", "INFO"),
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level: <4} | {extra[request_id]} | {function} | {file}:{line} | {message}",
+    rotation="10 MB",
+    retention="7 days",
+    encoding="utf-8",
+    enqueue=True,  # 异步写盘，多线程安全
+)
+
+# 可选 JSON 结构化日志（KB_LOG_JSON=1 开启）——供 ELK/Loki 采集
+if os.getenv("KB_LOG_JSON", "").strip() in ("1", "true", "yes"):
+    logger.add(
+        _LOG_DIR / "app.jsonl",
+        level=os.getenv("KB_LOG_LEVEL", "INFO"),
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {extra[request_id]} | {function} | {message}",
+        rotation="50 MB",
+        retention="7 days",
+        encoding="utf-8",
+        enqueue=True,
+        serialize=True,  # 每条日志一个 JSON 对象
+    )
 
 # 请求级上下文：request_id（中间件注入），每条日志自动带上，跨模块串联一次请求
 _request_id_ctx: ContextVar[str] = ContextVar("request_id", default="-")
@@ -200,6 +227,14 @@ def create_app() -> FastAPI:
     _admin_key = _cfg.admin_api_key
     _research_limiter = _SlidingWindowLimiter(max_requests=10, window_seconds=60)
 
+    # P0：KB 问答限流——/kb/ask 每次都是 LLM 付费调用，不能裸奔。
+    # 按身份（user_id 或 anonymous）分桶限流，防单用户刷爆费用。
+    # KB_ASK_RATE_LIMIT：每分钟每身份最大请求数（默认 20）。
+    _kb_ask_limiter = _SlidingWindowLimiter(
+        max_requests=int(os.getenv("KB_ASK_RATE_LIMIT", "20") or 20),
+        window_seconds=60,
+    )
+
     def _check_research_access(request: Request) -> None:
         """深度研究接口的统一鉴权入口：可选 API key + 全局限流。"""
         if _admin_key and not _key_matches(request.headers.get("X-API-Key"), _admin_key):
@@ -278,6 +313,14 @@ def create_app() -> FastAPI:
             checks["chroma"] = "ok"
         except Exception as exc:
             checks["chroma"] = f"error: {exc}"
+        # P0：embedding 后端探活——embedding 挂了 ask 会 500，必须提前探出
+        try:
+            if kb["embeddings"].ping():
+                checks["embedding"] = "ok"
+            else:
+                checks["embedding"] = "error: unreachable"
+        except Exception as exc:
+            checks["embedding"] = f"error: {exc}"
 
         ok = all(v == "ok" for v in checks.values())
         if not ok:
@@ -322,6 +365,18 @@ def create_app() -> FastAPI:
         kb = _get_kb()  # 仅用于身份解析
         _require_kb_admin(kb, request.headers.get("X-API-Key"), x_api_token, None)
         return global_metrics.snapshot()
+
+    @app.get("/metrics")
+    def prometheus_metrics() -> Response:
+        """Prometheus 文本格式指标（标准抓取端点，无鉴权，供内网监控抓取）。"""
+        from fastapi.responses import Response
+
+        from services.kb.metrics import global_metrics
+
+        return Response(
+            content=global_metrics.to_prometheus(),
+            media_type="text/plain; version=0.0.4; charset=utf-8",
+        )
 
     @app.post("/research", response_model=ResearchResponse)
     def run_research(payload: ResearchRequest, request: Request) -> ResearchResponse:
@@ -476,9 +531,11 @@ def create_app() -> FastAPI:
             store.migrate_default_kb_id()
 
             # LLM（复用现有配置：DeepSeek）
+            # P0：设默认超时——LLM/网络 hang 时不拖死请求（qa_graph 内单次调用也带 timeout）
             llm = OpenAI(
                 api_key=cfg.llm_api_key,
                 base_url=cfg.llm_base_url or None,
+                timeout=float(os.getenv("LLM_TIMEOUT", "60") or 60),
             )
             # model 显式传给 build_qa_graph（P1：去掉 _model 私有属性 hack）
 
@@ -532,9 +589,19 @@ def create_app() -> FastAPI:
                     "config": cfg,
                     "auth": auth,
                     "audit": audit,
+                    "checkpoint_conn": _ckpt_conn,  # P2：会话管理接口用（列/删 thread）
                 }
             )
             return _kb
+
+    # P0：文档级更新锁——并发 PUT 同一 doc_id 串行化。
+    # 否则"读旧 ids → 写新 → 删 stale"三步并发时，A 删的 stale 可能误删 B 刚写的新块。
+    _doc_locks: dict[str, Lock] = {}
+    _doc_locks_guard = Lock()
+
+    def _get_doc_lock(doc_id: str) -> Lock:
+        with _doc_locks_guard:
+            return _doc_locks.setdefault(doc_id, Lock())
 
     def _require_kb_access(
         kb: dict, user_id: str | None, kb_id: str, *, required: bool = False
@@ -542,18 +609,26 @@ def create_app() -> FastAPI:
         """校验 user_id 对 kb_id 的访问权。
 
         required=True（写操作：ingest/update/delete）：缺 user_id 直接 401——写操作必须带身份；
+          同时校验写权限（readonly 角色只读，写操作 403）。
         required=False（读操作：ask/docs/kbs）：demo 兼容，未传身份不校验。
-        admin 角色 can_access 恒真（全通）。
+        admin 角色全通；readonly 角色可读不可写。
         """
         if not user_id:
             if required:
                 raise HTTPException(status_code=401, detail="此操作需提供身份（token 或 user_id）")
             return
-        if not kb["auth"].can_access(user_id, kb_id):
-            raise HTTPException(
-                status_code=403,
-                detail=f"用户 {user_id} 无权访问知识库 {kb_id}",
-            )
+        if required:
+            if not kb["auth"].can_write(user_id, kb_id):
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"用户 {user_id} 无知识库 {kb_id} 的写权限（readonly 只读）",
+                )
+        else:
+            if not kb["auth"].can_access(user_id, kb_id):
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"用户 {user_id} 无权访问知识库 {kb_id}",
+                )
 
     # P0-1：用户/权限管理接口的统一鉴权——X-API-Key（匹配 ADMIN_API_KEY）或
     # 已认证的 admin 用户（token / user_id），二选一。杜绝「裸接口建 admin」。
@@ -624,12 +699,14 @@ def create_app() -> FastAPI:
         title: str | None,
         kb_id: str,
         ocr_mode: str = "local",
-    ) -> tuple[list, list, str]:
-        """解析 + 分块 + 向量化（不写库）。返回 (chunks, vectors, resolved_title)。
+    ) -> tuple[list, list, str, str]:
+        """解析 + 分块 + 向量化（不写库）。返回 (chunks, vectors, resolved_title, content_hash)。
 
         P0-2 原子更新的「准备阶段」：任何失败（解析/embedding）都不触碰旧数据，
         调用方（ingest/update）拿到结果后才决定写库。
+        content_hash（P1 复核）：文件内容 SHA-256，供写库前去重。
         """
+        import hashlib
         import uuid
         from services.kb.ingest import build_chunks
 
@@ -639,6 +716,7 @@ def create_app() -> FastAPI:
         # P1-1：流式写盘（1MB 分片）+ 大小上限，避免整文件读进内存 / 磁盘写满
         max_bytes = _MAX_UPLOAD_MB * 1024 * 1024
         size = 0
+        digest = hashlib.sha256()
         with open(tmp_path, "wb") as _f:
             while True:
                 chunk = file.file.read(1024 * 1024)
@@ -656,6 +734,8 @@ def create_app() -> FastAPI:
                         detail=f"文件超过大小限制 {_MAX_UPLOAD_MB}MB",
                     )
                 _f.write(chunk)
+                digest.update(chunk)
+        content_hash = digest.hexdigest()
 
         cfg = kb["config"]
         try:
@@ -671,7 +751,7 @@ def create_app() -> FastAPI:
                 raise HTTPException(status_code=400, detail="文档解析后无有效内容")
             vectors = kb["embeddings"].embed_texts([c.text for c in chunks])
             resolved_title = (title or "").strip() or tmp_path.stem
-            return chunks, vectors, resolved_title
+            return chunks, vectors, resolved_title, content_hash
         finally:
             try:
                 tmp_path.unlink(missing_ok=True)  # 清理临时文件
@@ -686,6 +766,7 @@ def create_app() -> FastAPI:
         doc_id: str,
         doc_title: str,
         kb_id: str,
+        content_hash: str | None = None,
     ) -> list[str]:
         """写库（单次 upsert 原子）。返回新写入的 chunk_id 列表。"""
         return kb["store"].add_chunks(
@@ -696,6 +777,7 @@ def create_app() -> FastAPI:
             source_type=chunks[0].source_type,
             chunk_indices=[c.chunk_index for c in chunks],
             kb_id=kb_id,
+            content_hash=content_hash,
         )
 
     @app.post("/kb/ingest")
@@ -721,12 +803,19 @@ def create_app() -> FastAPI:
             user_id = _resolve_user_id(kb, x_api_token, user_id)
             _require_kb_access(kb, user_id, kb_id, required=True)
             doc_id = uuid.uuid4().hex
-            chunks, vectors, resolved_title = _prepare_chunks(
+            chunks, vectors, resolved_title, content_hash = _prepare_chunks(
                 kb, file, doc_id=doc_id, title=title, kb_id=kb_id, ocr_mode=ocr_mode
             )
+            # P1 复核：内容去重——同 hash 已存在则拒绝重复入库，返回已有 doc_id
+            dup_doc = kb["store"].find_doc_by_hash(content_hash)
+            if dup_doc:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"文档内容已存在（doc_id={dup_doc}），请勿重复上传",
+                )
             _write_chunks(
                 kb, chunks=chunks, vectors=vectors, doc_id=doc_id,
-                doc_title=resolved_title, kb_id=kb_id,
+                doc_title=resolved_title, kb_id=kb_id, content_hash=content_hash,
             )
             kb["audit"].record(
                 user_id=user_id or "anonymous", action="ingest", target=doc_id,
@@ -753,12 +842,16 @@ def create_app() -> FastAPI:
         """基于知识库问答（LangGraph 编排）。
 
         权限（P3 §3.4）：X-Api-Token 头优先解析身份，无则 user_id 兼容；校验对该 kb_id 的访问权。
+        限流（P0）：按身份分桶限流，防刷爆 LLM 付费调用（KB_ASK_RATE_LIMIT）。
         """
         try:
             kb = _get_kb()
             user_id = _resolve_user_id(kb, x_api_token, payload.user_id)
             # RBAC：越权在检索前拦截（绝不在生成后补救）
             _require_kb_access(kb, user_id, payload.kb_id)
+            # 限流：按 user_id（未认证用 anonymous 共用桶）
+            if not _kb_ask_limiter.allow(user_id or "anonymous"):
+                raise HTTPException(status_code=429, detail="问答请求过于频繁，请稍后再试")
             from services.kb import qa_graph
 
             result = qa_graph.run_qa(
@@ -774,6 +867,46 @@ def create_app() -> FastAPI:
         except Exception as exc:
             logger.error("KB ask failed: {}", exc)
             raise HTTPException(status_code=500, detail=f"问答失败: {exc}") from exc
+
+    @app.post("/kb/ask/stream")
+    def kb_ask_stream(
+        payload: KbAskRequest = Body(...), x_api_token: str | None = Header(default=None)
+    ) -> StreamingResponse:
+        """流式问答（SSE）：按节点推送进度，前端实时反馈（P2）。
+
+        鉴权/限流与 /kb/ask 一致。事件格式：data: {"type":"node","node":...}
+        最后一条 type="final" 携带完整答案与引用。
+        """
+        try:
+            kb = _get_kb()
+            user_id = _resolve_user_id(kb, x_api_token, payload.user_id)
+            _require_kb_access(kb, user_id, payload.kb_id)
+            if not _kb_ask_limiter.allow(user_id or "anonymous"):
+                raise HTTPException(status_code=429, detail="问答请求过于频繁，请稍后再试")
+        except HTTPException:
+            raise
+
+        from services.kb import qa_graph
+
+        def event_iterator() -> Iterator[str]:
+            try:
+                for event in qa_graph.run_qa_stream(
+                    kb["graph"],
+                    question=payload.question,
+                    history=payload.history,
+                    kb_id=payload.kb_id,
+                    thread_id=payload.thread_id,
+                ):
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            except Exception as exc:
+                logger.exception("KB ask stream failed")
+                yield f"data: {json.dumps({'type': 'error', 'detail': str(exc)}, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(
+            event_iterator(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+        )
 
     @app.get("/kb/docs")
     def kb_list_docs(
@@ -880,20 +1013,22 @@ def create_app() -> FastAPI:
             kb = _get_kb()
             user_id = _resolve_user_id(kb, x_api_token, user_id)
             _require_kb_access(kb, user_id, kb_id, required=True)
-            # 1. 准备（不碰旧数据；任何失败 → 旧文档完好）
-            chunks, vectors, resolved_title = _prepare_chunks(
-                kb, file, doc_id=doc_id, title=title, kb_id=kb_id, ocr_mode=ocr_mode
-            )
-            # 2. 原子写（upsert 同 id 覆盖，单次调用）
-            old_ids = set(kb["store"].get_doc_ids(doc_id))
-            new_ids = _write_chunks(
-                kb, chunks=chunks, vectors=vectors, doc_id=doc_id,
-                doc_title=resolved_title, kb_id=kb_id,
-            )
-            # 3. 清理 stale（分块数变少时多余的旧块；写后删，失败不影响新文档）
-            new_set = set(new_ids)  # 复核修复：提出循环，避免每元素重建 set
-            stale = [cid for cid in old_ids if cid not in new_set]
-            deleted = kb["store"].delete_chunk_ids(stale)
+            # P0：文档级锁——prepare+写+删 stale 三步串行化，防并发误删
+            with _get_doc_lock(doc_id):
+                # 1. 准备（不碰旧数据；任何失败 → 旧文档完好）
+                chunks, vectors, resolved_title, content_hash = _prepare_chunks(
+                    kb, file, doc_id=doc_id, title=title, kb_id=kb_id, ocr_mode=ocr_mode
+                )
+                # 2. 原子写（upsert 同 id 覆盖，单次调用）
+                old_ids = set(kb["store"].get_doc_ids(doc_id))
+                new_ids = _write_chunks(
+                    kb, chunks=chunks, vectors=vectors, doc_id=doc_id,
+                    doc_title=resolved_title, kb_id=kb_id, content_hash=content_hash,
+                )
+                # 3. 清理 stale（分块数变少时多余的旧块；写后删，失败不影响新文档）
+                new_set = set(new_ids)  # 复核修复：提出循环，避免每元素重建 set
+                stale = [cid for cid in old_ids if cid not in new_set]
+                deleted = kb["store"].delete_chunk_ids(stale, kb_id=kb_id)
             kb["audit"].record(
                 user_id=user_id or "anonymous", action="update", target=doc_id,
                 detail={"kb_id": kb_id, "chunks": len(chunks), "stale_removed": deleted},
@@ -1092,6 +1227,58 @@ def create_app() -> FastAPI:
         except Exception as exc:
             logger.error("KB reset token failed: {}", exc)
             raise HTTPException(status_code=500, detail=f"重置 token 失败: {exc}") from exc
+
+    # ==================== 会话管理（P2：thread 无限累积需清理）====================
+
+    @app.get("/kb/threads")
+    def kb_list_threads(
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """列出所有会话线程（thread_id + checkpoint 数），需管理员。"""
+        try:
+            kb = _get_kb()
+            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            conn = kb["checkpoint_conn"]
+            rows = conn.execute(
+                "SELECT thread_id, COUNT(*) AS n FROM checkpoints "
+                "GROUP BY thread_id ORDER BY n DESC"
+            ).fetchall()
+            return {
+                "threads": [{"thread_id": r[0], "checkpoints": r[1]} for r in rows],
+                "total": len(rows),
+            }
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("KB list threads failed: {}", exc)
+            raise HTTPException(status_code=500, detail=f"查询失败: {exc}") from exc
+
+    @app.delete("/kb/threads/{thread_id}")
+    def kb_delete_thread(
+        thread_id: str,
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """删除某会话线程的全部 checkpoint（需管理员；会话清理用）。"""
+        try:
+            kb = _get_kb()
+            operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            conn = kb["checkpoint_conn"]
+            cur1 = conn.execute("DELETE FROM checkpoints WHERE thread_id=?", (thread_id,))
+            cur2 = conn.execute("DELETE FROM writes WHERE thread_id=?", (thread_id,))
+            conn.commit()
+            kb["audit"].record(
+                user_id=operator, action="delete_thread", target=thread_id,
+            )
+            return {"thread_id": thread_id, "deleted_checkpoints": cur1.rowcount}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("KB delete thread failed: {}", exc)
+            raise HTTPException(status_code=500, detail=f"删除失败: {exc}") from exc
 
     return app
 

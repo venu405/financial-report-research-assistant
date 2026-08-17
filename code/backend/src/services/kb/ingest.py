@@ -112,30 +112,55 @@ def _parse_docx(path: Path) -> str:
     return "\n".join(parts)
 
 
+def _split_units(text: str) -> list[str]:
+    """按自然边界切成原子单元：段落 / 标题 / 表格 / 代码块（空行分隔）。
+
+    目的：分块绝不拦腰切断一个段落或一行表格——召回质量的第一道关卡。
+    """
+    units = re.split(r"\n\s*\n", text)
+    return [u.strip() for u in units if u.strip()]
+
+
 def chunk_text(
     text: str,
     *,
     chunk_size: int = 800,
     overlap: int = 100,
 ) -> list[str]:
-    """按字符分块：固定大小 + 重叠窗口。
+    """结构感知分块：先按段落/标题/表格边界切成原子单元，再聚合到 chunk_size。
 
-    overlap 的作用：防止"语义在边界被切断"（比如一句话正好被切成两半）。
-    代价：内容重复存储，但检索召回率更高——这是 RAG 的标准取舍。
+    相比纯字符固定切分（会拦腰断句/断表格），这里：
+    - 空行分隔的段落、Markdown 标题、表格块、代码块都是"不可再分的单元"，
+      只在单元边界处分块，语义完整。
+    - 仅当单个单元本身超长（如超长段落/代码块）时才退化为字符硬切（带重叠）。
     """
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
     if not text:
         return []
 
+    units = _split_units(text)
     chunks: list[str] = []
-    step = max(chunk_size - overlap, 1)  # 每次前进步长
-    start = 0
-    while start < len(text):
-        chunks.append(text[start : start + chunk_size])
-        start += step
-        # 防死循环：最后一段不足时退出
-        if start >= len(text):
-            break
+    current = ""
+    for unit in units:
+        # 单个单元超长：硬切（带重叠），保留语义完整性之外的大块
+        if len(unit) > chunk_size:
+            if current:
+                chunks.append(current)
+                current = ""
+            step = max(chunk_size - overlap, 1)
+            for i in range(0, len(unit), step):
+                piece = unit[i : i + chunk_size]
+                if piece:
+                    chunks.append(piece)
+            continue
+        # 聚合：当前块 + 单元不超过 chunk_size 就合并，否则开新块
+        if current and len(current) + len(unit) + 2 > chunk_size:
+            chunks.append(current)
+            current = unit
+        else:
+            current = f"{current}\n\n{unit}" if current else unit
+    if current:
+        chunks.append(current)
     return chunks
 
 

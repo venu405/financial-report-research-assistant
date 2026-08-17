@@ -71,12 +71,12 @@ class HybridRetriever:
         self._seq_snapshot: dict[str, int] = {}
 
     def _rebuild_if_needed(self, kb_id: str) -> None:
-        """写序号变化后重建该库 BM25 索引（内存 seq 比对，跳过 count 全表扫）。
+        """该库写序号变化后重建 BM25 索引（内存 seq 比对，跳过 count 全表扫）。
 
-        局限：seq 是全局的，其它库写入也会触发本库重建（多 worker 下以本地写为准）。
-        相比每次 ask 全表 get ids，重建代价仍小得多，且绝对正确。
+        按 kb 维护的 seq（P1 复核）：只有本库有写入才重建，其它库写入不影响。
+        多 worker 下以本地写为准（进程内缓存各自独立）。
         """
-        current_seq = self._store.mutation_seq
+        current_seq = self._store.mutation_seq(kb_id)
         if kb_id not in self._bm25 or current_seq != self._seq_snapshot.get(kb_id):
             corpus = self._store.all_items(kb_id=kb_id)
             tokenized = [_tokenize(c["text"]) for c in corpus]
