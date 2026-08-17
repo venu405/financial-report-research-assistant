@@ -25,6 +25,10 @@ code/backend/.env
 # 备份目录（backup_kb.py 输出，不入库）
 backups/
 
+# 运行时日志（loguru 文件 sink，不入库）
+logs/
+*.log
+
 # 深度研究笔记（运行时生成，可能含敏感网页抓取内容，禁止入库）
 **/notes/
 
