@@ -63,3 +63,11 @@ rm -rf src/chroma_data && cp -r backups/kb_<时间戳>/chroma_data src/
 | `KB_TOKEN_TTL_DAYS` | 90 | token 有效期 |
 | `KB_MAX_UPLOAD_MB` | 50 | 上传大小上限 |
 | `KB_RESEARCH_TOKEN_BUDGET` | 100000 | 单次研究 token 预算 |
+| `BAIDU_OCR_API_KEY` | 空 | 百度 OCR 后备通道 API Key（配了才启用百度兜底） |
+| `BAIDU_OCR_SECRET_KEY` | 空 | 百度 OCR Secret Key |
+| `KB_BAIDU_OCR_QPS` | 2 | 百度 OCR 每秒调用上限（防打爆配额） |
+| `KB_OCR_FALLBACK_CONFIDENCE` | 0.6 | auto 模式本地 OCR 置信度低于此值触发百度兜底 |
+
+> 百度 OCR 是可选后备通道：`BAIDU_OCR_API_KEY` / `SECRET_KEY` 留空则纯本地识别（零联网零费用）。
+> 这两个变量**只从环境变量读**（`load_dotenv` 加载 .env），不进 Configuration 对象——排障时认准
+> 环境变量即可，启动日志会打印 `Baidu OCR fallback: configured=...`。

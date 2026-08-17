@@ -23,10 +23,18 @@ def ocr_ready():
 
 
 _CJK_FONTS = [
+    # Windows
     r"C:/Windows/Fonts/msyh.ttc",
     r"C:/Windows/Fonts/simhei.ttf",
-    r"C:/Windows/Fonts/msyh.ttf",
     r"C:/Windows/Fonts/simsun.ttc",
+    # Linux（CI/Docker，装 fonts-noto-cjk 后可用）
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+    "/usr/share/fonts/wqy-zenhei/wqy-zenhei.ttc",
+    # macOS
+    "/System/Library/Fonts/PingFang.ttc",
 ]
 
 

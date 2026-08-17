@@ -101,14 +101,21 @@ def _mode_auto(image_input: ImageInput) -> str:
     """本地优先 + 空/低置信兜底到百度（对印刷体零联网；手写潦草置信度高时覆盖不到）。"""
     local_text = ""
     local_error: Exception | None = None
+    fallback_triggered = False
     try:
         local_text, scores = _run_local(image_input)
         if _result_acceptable(local_text, scores) and not _text_looks_bad(local_text):
             return local_text
+        fallback_triggered = True
         logger.info("本地 OCR 结果不佳（%d 字，置信度或内容不达标），启用百度后备", len(local_text))
     except Exception as exc:
         local_error = exc
+        fallback_triggered = True
         logger.warning("本地 OCR 识别失败，尝试百度后备: %s", exc)
+
+    # 兜底率指标：本地不达标/失败时触发百度（配合 baidu_ocr 的 success/fallback 算付费率）
+    if fallback_triggered:
+        _incr("ocr.auto_fallback_triggered")
 
     try:
         baidu_text = _fallback_baidu(image_input)
@@ -183,3 +190,13 @@ def _fallback_baidu(image_input: ImageInput) -> str:
     except Exception as exc:  # import 失败等极端情况
         logger.warning("百度 OCR 后备不可用: %s", exc)
         return ""
+
+
+def _incr(name: str) -> None:
+    """进程内指标埋点（失败不影响主流程）。"""
+    try:
+        from services.kb.metrics import global_metrics
+
+        global_metrics.incr(name)
+    except Exception:
+        pass

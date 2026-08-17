@@ -246,6 +246,16 @@ def create_app() -> FastAPI:
                 "仅依赖 admin token 鉴权。生产环境请设置 ADMIN_API_KEY。"
             )
 
+        # P2-3：打印百度 OCR 后备通道配置状态（masked）——环境变量是唯一配置源，
+        # 排障时一眼看到"百度 OCR 是否配了、QPS 上限多少"，不用去翻 .env
+        _baidu_key = os.getenv("BAIDU_OCR_API_KEY", "")
+        _baidu_secret = os.getenv("BAIDU_OCR_SECRET_KEY", "")
+        logger.info(
+            "Baidu OCR fallback: configured=%s qps=%s",
+            bool(_baidu_key and _baidu_secret),
+            os.getenv("KB_BAIDU_OCR_QPS", "2"),
+        )
+
     @app.get("/healthz")
     def health_check() -> Dict[str, str]:
         return {"status": "ok"}
@@ -270,7 +280,10 @@ def create_app() -> FastAPI:
             checks["chroma"] = f"error: {exc}"
 
         ok = all(v == "ok" for v in checks.values())
-        return {"status": "ok" if ok else "degraded", "checks": checks}
+        if not ok:
+            # P1-3 复核修复：就绪探针语义——依赖不可用必须 503，供编排器摘流
+            raise HTTPException(status_code=503, detail=f"依赖不可用: {checks}")
+        return {"status": "ok", "checks": checks}
 
     @app.get("/admin/diag")
     def admin_diag(request: Request) -> Dict[str, Any]:
@@ -289,19 +302,25 @@ def create_app() -> FastAPI:
     def admin_audit(
         request: Request,
         limit: int = Query(default=200, ge=1, le=1000),
+        x_api_token: str | None = Header(default=None),
     ) -> Dict[str, Any]:
         """审计日志（最近 N 条，需 X-API-Key 或 admin）。管理界面/合规导出用。"""
-        if _admin_key and not _key_matches(request.headers.get("X-API-Key"), _admin_key):
-            raise HTTPException(status_code=401, detail="无效的 API Key")
         kb = _get_kb()
+        # P1-3 复核修复：与 docstring 对齐——X-API-Key 或 admin token 二选一，
+        # 不再"未配 ADMIN_API_KEY 即裸开放"
+        _require_kb_admin(kb, request.headers.get("X-API-Key"), x_api_token, None)
         return {"total": kb["audit"].count(), "entries": kb["audit"].recent(limit)}
 
     @app.get("/admin/metrics")
-    def admin_metrics(request: Request) -> Dict[str, Any]:
+    def admin_metrics(
+        request: Request,
+        x_api_token: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
         """进程内指标（计数 + 延迟分位数）。需 X-API-Key 或 admin。"""
-        if _admin_key and not _key_matches(request.headers.get("X-API-Key"), _admin_key):
-            raise HTTPException(status_code=401, detail="无效的 API Key")
         from services.kb.metrics import global_metrics
+
+        kb = _get_kb()  # 仅用于身份解析
+        _require_kb_admin(kb, request.headers.get("X-API-Key"), x_api_token, None)
         return global_metrics.snapshot()
 
     @app.post("/research", response_model=ResearchResponse)
@@ -536,14 +555,9 @@ def create_app() -> FastAPI:
                 detail=f"用户 {user_id} 无权访问知识库 {kb_id}",
             )
 
-    def _key_matches(provided: str | None, expected: str) -> bool:
-        """恒定时间比较 API key（防时序攻击）。任一为空返回 False。"""
-        if not provided or not expected:
-            return False
-        return hmac.compare_digest(provided.encode("utf-8"), expected.encode("utf-8"))
-
     # P0-1：用户/权限管理接口的统一鉴权——X-API-Key（匹配 ADMIN_API_KEY）或
     # 已认证的 admin 用户（token / user_id），二选一。杜绝「裸接口建 admin」。
+    # 注意：_key_matches 用模块级定义（hmac.compare_digest 恒定时间比较）。
     def _require_kb_admin(
         kb: dict,
         x_api_key: str | None,
@@ -877,7 +891,8 @@ def create_app() -> FastAPI:
                 doc_title=resolved_title, kb_id=kb_id,
             )
             # 3. 清理 stale（分块数变少时多余的旧块；写后删，失败不影响新文档）
-            stale = [cid for cid in old_ids if cid not in set(new_ids)]
+            new_set = set(new_ids)  # 复核修复：提出循环，避免每元素重建 set
+            stale = [cid for cid in old_ids if cid not in new_set]
             deleted = kb["store"].delete_chunk_ids(stale)
             kb["audit"].record(
                 user_id=user_id or "anonymous", action="update", target=doc_id,
@@ -930,6 +945,8 @@ def create_app() -> FastAPI:
                 detail={"name": name, "role": role},
             )
             return {"user_id": uid, "name": name, "role": role, "api_token": token}
+        except HTTPException:
+            raise  # 401/403 直接抛出，不被转 500（P0-1 审核修复）
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:
@@ -985,12 +1002,12 @@ def create_app() -> FastAPI:
         """授权用户访问某知识库（需管理员）。"""
         try:
             kb = _get_kb()
-            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
             if not kb["auth"].get_user(user_id):
                 raise HTTPException(status_code=404, detail="用户不存在")
             kb["auth"].grant_access(user_id, kb_id)
             kb["audit"].record(
-                user_id=admin_id or "admin", action="grant", target=user_id,
+                user_id=operator, action="grant", target=user_id,
                 detail={"kb_id": kb_id},
             )
             return {"user_id": user_id, "kb_id": kb_id, "granted": True}
@@ -1011,12 +1028,12 @@ def create_app() -> FastAPI:
         """设置用户角色（member | admin，需管理员）。"""
         try:
             kb = _get_kb()
-            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
             if not kb["auth"].get_user(user_id):
                 raise HTTPException(status_code=404, detail="用户不存在")
             ok = kb["auth"].set_role(user_id, role)
             kb["audit"].record(
-                user_id=admin_id or "admin", action="set_role", target=user_id,
+                user_id=operator, action="set_role", target=user_id,
                 detail={"role": role},
             )
             return {"user_id": user_id, "role": role, "updated": ok}
@@ -1039,10 +1056,10 @@ def create_app() -> FastAPI:
         """撤销用户对某知识库的访问权（需管理员）。"""
         try:
             kb = _get_kb()
-            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
             removed = kb["auth"].revoke_access(user_id, kb_id)
             kb["audit"].record(
-                user_id=admin_id or "admin", action="revoke", target=user_id,
+                user_id=operator, action="revoke", target=user_id,
                 detail={"kb_id": kb_id},
             )
             return {"user_id": user_id, "kb_id": kb_id, "removed": removed}
@@ -1062,12 +1079,12 @@ def create_app() -> FastAPI:
         """重置用户 API token（需管理员；token 泄露时用，旧 token 立即失效）。"""
         try:
             kb = _get_kb()
-            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
             if not kb["auth"].get_user(user_id):
                 raise HTTPException(status_code=404, detail="用户不存在")
             token = kb["auth"].reset_token(user_id)
             kb["audit"].record(
-                user_id=admin_id or "admin", action="reset_token", target=user_id,
+                user_id=operator, action="reset_token", target=user_id,
             )
             return {"user_id": user_id, "api_token": token}
         except HTTPException:

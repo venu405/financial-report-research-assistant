@@ -23,9 +23,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # P3-1：装中文字体（Noto CJK），让 OCR 测试用例在 Linux CI 也能跑（而非 skip）
+      - name: Install CJK fonts
+        run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
+
       - name: Run tests
         working-directory: code/backend
-        run: pytest tests/unit/ -v
+        run: pytest tests/ -v
 
       - name: Lint (ruff)
         working-directory: code/backend
