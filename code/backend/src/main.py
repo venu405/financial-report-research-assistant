@@ -510,22 +510,22 @@ def create_app() -> FastAPI:
 
             cfg = Configuration.from_env()
 
-            # Embedding：按模式切换（bge_m3 本地 / zhipu 云端）
+            # Embedding：仅本地 bge_m3（Ollama /api/embed）。
+            # zhipu 云端模式未实现（EmbeddingClient 不支持 OpenAI 兼容端点），
+            # 配 KB_EMBEDDING_MODE=zhipu 会启动失败——这里忽略并回退本地 + 告警。
             if cfg.kb_embedding_mode == "zhipu":
-                embeddings = EmbeddingClient(  # 复用 OpenAI 兼容客户端
-                    api_key=cfg.kb_embedding_api_key,
-                    base_url=cfg.kb_embedding_base_url,
-                    model=cfg.kb_embedding_model,
+                logger.warning(
+                    "KB_EMBEDDING_MODE=zhipu 未实现（仅支持本地 bge_m3），已回退本地模式"
                 )
-            else:  # bge_m3 本地（默认）
-                embeddings = EmbeddingClient(
-                    base_url=cfg.kb_ollama_host,
-                    model=cfg.kb_embedding_model,
-                )
+            embeddings = EmbeddingClient(
+                base_url=cfg.kb_ollama_host,
+                model=cfg.kb_embedding_model,
+            )
 
             store = VectorStore(
                 persist_dir=cfg.kb_chroma_dir,
                 collection_name=cfg.kb_collection,
+                embedding_model=cfg.kb_embedding_model,
             )
             # P3：历史数据迁移——给无 kb_id 的 chunk 补默认值（幂等，仅首次执行实际写入）
             store.migrate_default_kb_id()
@@ -559,6 +559,7 @@ def create_app() -> FastAPI:
                 top_k=cfg.kb_top_k,
                 checkpointer=saver,
                 model=cfg.llm_model_id or "deepseek-chat",
+                min_score=float(os.getenv("KB_MIN_SIMILARITY", "0") or 0),
             )
 
             # P3 §3.4 / v3 §6.1：RBAC——用户与知识库访问权限（SQLite）
@@ -749,8 +750,11 @@ def create_app() -> FastAPI:
             )
             if not chunks:
                 raise HTTPException(status_code=400, detail="文档解析后无有效内容")
-            vectors = kb["embeddings"].embed_texts([c.text for c in chunks])
             resolved_title = (title or "").strip() or tmp_path.stem
+            # 标题参与向量化（P0）：title 是强信号，拼进 embedding 输入；
+            # 存储仍用纯正文（metadata 里已有 doc_title），检索更准且展示不重复
+            embed_inputs = [f"{resolved_title}\n{c.text}" for c in chunks]
+            vectors = kb["embeddings"].embed_texts(embed_inputs)
             return chunks, vectors, resolved_title, content_hash
         finally:
             try:

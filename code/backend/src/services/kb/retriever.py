@@ -60,10 +60,14 @@ class HybridRetriever:
         *,
         embeddings: EmbeddingClient,
         top_k: int = 5,
+        min_score: float = 0.0,
     ):
         self._store = vector_store
         self._embeddings = embeddings
         self._top_k = top_k
+        # 相关性阈值：余弦相似度 < min_score 的向量结果视为未命中，不参与融合。
+        # 0 = 不过滤（向后兼容）。真实语料建议实测后调（BGE-M3 相关文档通常 0.5+）。
+        self._min_score = min_score
         # 按知识库分别缓存 BM25 索引（多库隔离，避免跨库串数据）
         self._bm25: dict[str, BM25Okapi | None] = {}
         self._corpus: dict[str, list[dict[str, Any]]] = {}
@@ -95,6 +99,9 @@ class HybridRetriever:
         # ---------- 1. 向量检索 Top-K（带 kb_id 过滤）----------
         qvec = self._embeddings.embed_query(query)
         vec_hits = self._store.search(qvec, top_k=max(k * 2, 10), kb_id=kb_id)
+        # 相关性阈值：低相似度的向量结果视为未命中，不参与融合（避免硬凑 top-N 垃圾）
+        if self._min_score > 0:
+            vec_hits = [h for h in vec_hits if h.get("score", 0.0) >= self._min_score]
         vec_ranks = {h["chunk_id"]: i for i, h in enumerate(vec_hits)}
 
         # ---------- 2. BM25 检索 Top-K（在该库的索引上）----------
@@ -153,14 +160,19 @@ class VectorOnlyRetriever:
         *,
         embeddings: EmbeddingClient,
         top_k: int = 5,
+        min_score: float = 0.0,
     ):
         self._store = vector_store
         self._embeddings = embeddings
         self._top_k = top_k
+        self._min_score = min_score
 
     def search(
         self, query: str, *, top_k: int | None = None, kb_id: str = "default"
     ) -> list[dict[str, Any]]:
         k = top_k or self._top_k
         qvec = self._embeddings.embed_query(query)
-        return self._store.search(qvec, top_k=k, kb_id=kb_id)
+        hits = self._store.search(qvec, top_k=k, kb_id=kb_id)
+        if self._min_score > 0:
+            hits = [h for h in hits if h.get("score", 0.0) >= self._min_score]
+        return hits

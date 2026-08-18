@@ -75,7 +75,12 @@ rm -rf src/chroma_data && cp -r backups/kb_<时间戳>/chroma_data src/
 | `BAIDU_OCR_SECRET_KEY` | 空 | 百度 OCR Secret Key |
 | `KB_BAIDU_OCR_QPS` | 2 | 百度 OCR 每秒调用上限（防打爆配额） |
 | `KB_OCR_FALLBACK_CONFIDENCE` | 0.6 | auto 模式本地 OCR 置信度低于此值触发百度兜底 |
+| `KB_MIN_SIMILARITY` | 0 | 向量相关性阈值（0=不过滤；BGE-M3 相关文档通常 0.5+，实测后调） |
 
 > 百度 OCR 是可选后备通道：`BAIDU_OCR_API_KEY` / `SECRET_KEY` 留空则纯本地识别（零联网零费用）。
 > 这两个变量**只从环境变量读**（`load_dotenv` 加载 .env），不进 Configuration 对象——排障时认准
 > 环境变量即可，启动日志会打印 `Baidu OCR fallback: configured=...`。
+
+> **Ollama 热加载延迟**：Ollama 默认 keep_alive 5 分钟后卸载模型，隔段时间首个 embedding 请求要
+> 重新加载 1.2GB 模型（秒级延迟尖峰）。部署时建议 `ollama run bge-m3 --keepalive 30m`（或修改
+> Ollama 环境变量 `OLLAMA_KEEP_ALIVE=30m`），保持模型常驻。

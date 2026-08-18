@@ -85,22 +85,24 @@ def build_qa_graph(
     hybrid: bool = True,
     checkpointer: Any = None,
     model: str = "deepseek-chat",
+    min_score: float = 0.0,
 ) -> Any:
     """构建 LangGraph 问答图。llm 为 OpenAI 兼容客户端（DeepSeek）。
 
     hybrid=True 时用混合检索（向量 + BM25 + RRF），False 时退回纯向量。
     checkpointer（P4）：传入 LangGraph checkpointer（如 SqliteSaver）后，
       对话状态按 thread_id 持久化，支持跨请求恢复与断点续跑；None 时不持久化。
+    min_score（P0）：向量相关性阈值，余弦相似度低于它视为未命中（0=不过滤）。
     """
     from services.kb.retriever import HybridRetriever, VectorOnlyRetriever
 
     if hybrid:
         retriever: Any = HybridRetriever(
-            vector_store, embeddings=embeddings, top_k=top_k
+            vector_store, embeddings=embeddings, top_k=top_k, min_score=min_score
         )
     else:
         retriever = VectorOnlyRetriever(
-            vector_store, embeddings=embeddings, top_k=top_k
+            vector_store, embeddings=embeddings, top_k=top_k, min_score=min_score
         )
 
     def node_rewrite(state: QaState) -> dict[str, Any]:

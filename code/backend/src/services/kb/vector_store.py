@@ -25,14 +25,25 @@ DEFAULT_KB_ID = "default"
 class VectorStore:
     """Chroma 持久化向量库（本地目录模式）。单 collection + kb_id 隔离。"""
 
-    def __init__(self, *, persist_dir: str, collection_name: str = "enterprise_kb"):
+    def __init__(
+        self,
+        *,
+        persist_dir: str,
+        collection_name: str = "enterprise_kb",
+        embedding_model: str = "",
+    ):
         # Chroma 1.x：持久化客户端直接指定 path
         self._client = chromadb.PersistentClient(path=persist_dir)
+        self._embedding_model = embedding_model
+        # 新库创建时把 embedding_model 写进 collection metadata；旧库读回校验
         self._collection = self._client.get_or_create_collection(
             name=collection_name,
-            metadata={"hnsw:space": "cosine"},  # 余弦相似度（文本检索默认）
+            metadata={"hnsw:space": "cosine", "embedding_model": embedding_model},
         )
         self._collection_name = collection_name
+        # P0：embedding 模型一致性校验——切换模型会静默污染已有库（维度不匹配
+        # 或语义错乱），启动时发现不一致即告警（不阻断，但绝不静默）。
+        self._check_embedding_model()
         # 🟡12：迁移标记——实例存活期间已跑过 migrate_default_kb_id 就不再全表扫
         self._migration_done = False
         # P2-1/P1 复核：写操作自增序号，**按 kb_id 维护**——retriever 比对它判断
@@ -40,6 +51,23 @@ class VectorStore:
         # 改为按库后只有本库写入才触发本库重建。
         self._mutation_seq: dict[str, int] = {}
         self._seq_lock = Lock()
+
+    def _check_embedding_model(self) -> None:
+        """启动校验：collection 已记录的 embedding 模型与当前配置是否一致。"""
+        if not self._embedding_model:
+            return
+        stored = (self._collection.metadata or {}).get("embedding_model", "")
+        if not stored:
+            logger.warning(
+                "Chroma collection 未记录 embedding_model（旧库），请确认当前模型 %s 与历史一致",
+                self._embedding_model,
+            )
+        elif stored != self._embedding_model:
+            logger.warning(
+                "⚠️ embedding 模型不一致：库用 %s 建，当前配 %s——维度/语义可能不匹配，"
+                "检索结果可能错误。请清库重 embedding 或改回原模型。",
+                stored, self._embedding_model,
+            )
 
     def _bump_seq(self, kb_id: str | None) -> None:
         """写操作后自增该 kb 的序号。kb_id 为 None 时用全局桶（兜底）。"""
