@@ -578,6 +578,21 @@ def create_app() -> FastAPI:
             feedback_path = Path(cfg.kb_chroma_dir).parent / "kb_feedback.db"
             feedback_store = FeedbackStore(feedback_path)
 
+            # 客服改造第8项：会话与消息（转人工闭环地基）
+            from services.kb.conversation_store import ConversationStore
+            conv_path = Path(cfg.kb_chroma_dir).parent / "kb_conversations.db"
+            conversation_store = ConversationStore(conv_path)
+
+            # 客服改造第10项：轻量工单
+            from services.kb.ticket_store import TicketStore
+            ticket_path = Path(cfg.kb_chroma_dir).parent / "kb_tickets.db"
+            ticket_store = TicketStore(ticket_path)
+
+            # 客服改造第11项：快捷回复
+            from services.kb.quick_reply_store import QuickReplyStore
+            quick_reply_path = Path(cfg.kb_chroma_dir).parent / "kb_quick_replies.db"
+            quick_reply_store = QuickReplyStore(quick_reply_path)
+
             # 客服改造第1项：Rerank 重排器（llm / crossencoder / off 三模式）
             from services.kb.reranker import build_reranker
             reranker = build_reranker(
@@ -637,6 +652,9 @@ def create_app() -> FastAPI:
                     "faq_store": faq_store,
                     "persona_store": persona_store,
                     "feedback_store": feedback_store,
+                    "conversation_store": conversation_store,
+                    "ticket_store": ticket_store,
+                    "quick_reply_store": quick_reply_store,
                     "checkpoint_conn": _ckpt_conn,  # P2：会话管理接口用（列/删 thread）
                 }
             )
@@ -931,6 +949,20 @@ def create_app() -> FastAPI:
                 faithfulness=result.get("score", 0),
                 answer=result.get("answer", ""),
             )
+            # 客服改造第9项：转人工——escalate 时建会话 + 进待接入池
+            if result.get("escalate"):
+                conv = kb["conversation_store"].get_or_create(
+                    payload.thread_id or uuid.uuid4().hex,
+                    kb_id=payload.kb_id,
+                    visitor_id=user_id or "anonymous",
+                )
+                kb["conversation_store"].add_message(conv["id"], "user", payload.question)
+                kb["conversation_store"].add_message(
+                    conv["id"], "assistant", result.get("answer", "")
+                )
+                kb["conversation_store"].transfer_to_human(conv["id"], "可回答性门槛两次不过")
+                result["conversation_id"] = conv["id"]
+                result["status"] = "waiting"
             return result
         except HTTPException:
             raise  # 403 等 HTTP 异常直接抛出，不被转 500
@@ -1549,6 +1581,290 @@ def create_app() -> FastAPI:
         except Exception as exc:
             logger.error("KB list feedback failed: {}", exc)
             raise HTTPException(status_code=500, detail=f"查询反馈失败: {exc}") from exc
+
+    # ==================== 客服工作台（第9项：转人工闭环）====================
+
+    @app.get("/kb/agent/queue")
+    def kb_agent_queue(
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """待接入池（waiting 会话），客服工作台首页。"""
+        try:
+            kb = _get_kb()
+            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            return {"conversations": kb["conversation_store"].list_by_status("waiting")}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("KB agent queue failed: {}", exc)
+            raise HTTPException(status_code=500, detail=f"查询待接入池失败: {exc}") from exc
+
+    @app.post("/kb/agent/claim/{conv_id}")
+    def kb_agent_claim(
+        conv_id: int,
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """坐席领取会话（waiting → human）。"""
+        try:
+            kb = _get_kb()
+            operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            claimed = kb["conversation_store"].claim(conv_id, operator)
+            return {"conversation_id": conv_id, "claimed": claimed}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("KB agent claim failed: {}", exc)
+            raise HTTPException(status_code=500, detail=f"领取失败: {exc}") from exc
+
+    @app.post("/kb/agent/reply/{conv_id}")
+    def kb_agent_reply(
+        conv_id: int,
+        content: str = Form(...),
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """坐席回复（存 agent 消息，清零未读）。"""
+        try:
+            kb = _get_kb()
+            operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            kb["conversation_store"].add_message(conv_id, "agent", content)
+            # 清零未读（坐席已读）
+            kb["conversation_store"]._conn.execute(
+                "UPDATE conversations SET unread_count=0 WHERE id=?", (conv_id,)
+            )
+            kb["conversation_store"]._conn.commit()
+            return {"conversation_id": conv_id, "replied": True}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("KB agent reply failed: {}", exc)
+            raise HTTPException(status_code=500, detail=f"回复失败: {exc}") from exc
+
+    @app.post("/kb/agent/close/{conv_id}")
+    def kb_agent_close(
+        conv_id: int,
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """结束会话。"""
+        try:
+            kb = _get_kb()
+            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            kb["conversation_store"].close(conv_id)
+            return {"conversation_id": conv_id, "closed": True}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("KB agent close failed: {}", exc)
+            raise HTTPException(status_code=500, detail=f"结束会话失败: {exc}") from exc
+
+    @app.get("/kb/agent/conversations/{conv_id}/messages")
+    def kb_agent_messages(
+        conv_id: int,
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """会话消息记录（坐席查看）。"""
+        try:
+            kb = _get_kb()
+            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            return {"messages": kb["conversation_store"].list_messages(conv_id)}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("KB agent messages failed: {}", exc)
+            raise HTTPException(status_code=500, detail=f"查询消息失败: {exc}") from exc
+
+    @app.post("/kb/agent/conversations/{conv_id}/tag")
+    def kb_agent_tag(
+        conv_id: int,
+        tag: str = Form(...),
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """会话打标签（如"退款咨询"），便于统计。"""
+        try:
+            kb = _get_kb()
+            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            kb["conversation_store"].set_tag(conv_id, tag)
+            return {"conversation_id": conv_id, "tag": tag}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("KB agent tag failed: {}", exc)
+            raise HTTPException(status_code=500, detail=f"打标签失败: {exc}") from exc
+
+    # ==================== 工单（第10项）====================
+
+    @app.post("/kb/tickets")
+    def kb_create_ticket(
+        payload: Dict[str, Any] = Body(...),
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """建工单（需管理员）。payload: conversation_id 可选, title, description。"""
+        try:
+            kb = _get_kb()
+            operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            ticket = kb["ticket_store"].create(
+                conversation_id=payload.get("conversation_id"),
+                title=payload.get("title", ""),
+                description=payload.get("description", ""),
+            )
+            kb["audit"].record(user_id=operator, action="create_ticket", target=ticket["ticket_no"])
+            return ticket
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("KB create ticket failed: {}", exc)
+            raise HTTPException(status_code=500, detail=f"建单失败: {exc}") from exc
+
+    @app.get("/kb/tickets")
+    def kb_list_tickets(
+        status: str | None = Query(default=None),
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """工单列表（需管理员，可筛状态）。"""
+        try:
+            kb = _get_kb()
+            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            return {"tickets": kb["ticket_store"].list(status=status)}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("KB list tickets failed: {}", exc)
+            raise HTTPException(status_code=500, detail=f"查询工单失败: {exc}") from exc
+
+    @app.get("/kb/tickets/{ticket_id}")
+    def kb_get_ticket(
+        ticket_id: int,
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """工单详情（含时间线）。"""
+        try:
+            kb = _get_kb()
+            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            ticket = kb["ticket_store"].get(ticket_id)
+            if not ticket:
+                raise HTTPException(status_code=404, detail="工单不存在")
+            return ticket
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("KB get ticket failed: {}", exc)
+            raise HTTPException(status_code=500, detail=f"查询工单失败: {exc}") from exc
+
+    @app.post("/kb/tickets/{ticket_id}/status")
+    def kb_update_ticket_status(
+        ticket_id: int,
+        status: str = Form(...),
+        note: str = Form(default=""),
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """变更工单状态（pending/processing/resolved/closed）。"""
+        try:
+            kb = _get_kb()
+            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            kb["ticket_store"].update_status(ticket_id, status, note)
+            return {"ticket_id": ticket_id, "status": status}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("KB update ticket failed: {}", exc)
+            raise HTTPException(status_code=500, detail=f"更新工单失败: {exc}") from exc
+
+    @app.post("/kb/tickets/{ticket_id}/assign")
+    def kb_assign_ticket(
+        ticket_id: int,
+        assignee: str = Form(...),
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """指派工单给坐席。"""
+        try:
+            kb = _get_kb()
+            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            kb["ticket_store"].assign(ticket_id, assignee)
+            return {"ticket_id": ticket_id, "assignee": assignee}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("KB assign ticket failed: {}", exc)
+            raise HTTPException(status_code=500, detail=f"指派失败: {exc}") from exc
+
+    # ==================== 快捷回复（第11项）====================
+
+    @app.get("/kb/quick-replies")
+    def kb_list_quick_replies(
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """快捷回复列表（需管理员）。"""
+        try:
+            kb = _get_kb()
+            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            return {"quick_replies": kb["quick_reply_store"].list()}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("KB list quick replies failed: {}", exc)
+            raise HTTPException(status_code=500, detail=f"查询快捷回复失败: {exc}") from exc
+
+    @app.post("/kb/quick-replies")
+    def kb_add_quick_reply(
+        title: str = Form(...),
+        content: str = Form(...),
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """新增快捷回复（需管理员）。"""
+        try:
+            kb = _get_kb()
+            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            rid = kb["quick_reply_store"].add(title, content)
+            return {"id": rid, "title": title}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("KB add quick reply failed: {}", exc)
+            raise HTTPException(status_code=500, detail=f"新增快捷回复失败: {exc}") from exc
+
+    @app.delete("/kb/quick-replies/{reply_id}")
+    def kb_delete_quick_reply(
+        reply_id: int,
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """删除快捷回复（需管理员）。"""
+        try:
+            kb = _get_kb()
+            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            removed = kb["quick_reply_store"].delete(reply_id)
+            return {"id": reply_id, "removed": removed}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("KB delete quick reply failed: {}", exc)
+            raise HTTPException(status_code=500, detail=f"删除快捷回复失败: {exc}") from exc
 
     return app
 
