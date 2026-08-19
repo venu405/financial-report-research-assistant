@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import { onMounted } from "vue";
 import {
   kbs, currentKb, userToken, onSwitchKb, logout,
+  threads, threadId, loadThreads, switchThread, deleteThread,
 } from "./useKbState";
 
 defineProps<{ active: string }>();
@@ -12,6 +14,8 @@ const navItems = [
   { key: "agent", label: "🛎 工作台", icon: "🛎" },
   { key: "admin", label: "⚙️ 管理", icon: "⚙️" },
 ];
+
+onMounted(loadThreads);
 </script>
 
 <template>
@@ -43,6 +47,22 @@ const navItems = [
         @change="onSwitchKb"
       />
       <button v-if="userToken" class="logout" @click="logout">登出</button>
+    </div>
+
+    <!-- 会话列表（P2-1：多会话切换/删除，需管理员身份） -->
+    <div class="threads">
+      <div class="label">会话（{{ threads.length }}）</div>
+      <div v-if="!threads.length" class="threads-empty">暂无会话记录</div>
+      <div
+        v-for="t in threads"
+        :key="t.thread_id"
+        class="thread-item"
+        :class="{ active: t.thread_id === threadId }"
+        @click="switchThread(t.thread_id)"
+      >
+        <span class="thread-id" :title="t.thread_id">💬 {{ t.thread_id.slice(0, 18) }}</span>
+        <button class="thread-del" title="删除" @click.stop="deleteThread(t.thread_id)">✕</button>
+      </div>
     </div>
   </aside>
 </template>
@@ -101,4 +121,23 @@ const navItems = [
   font-size: var(--text-sm);
   color: var(--color-charcoal);
 }
+.threads {
+  display: flex; flex-direction: column; gap: 4px; padding: 0 8px;
+  flex: 1; overflow-y: auto; min-height: 0;
+}
+.threads-empty { font-size: var(--text-xs); color: var(--color-slate); padding: 4px 0; }
+.thread-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 8px; border-radius: var(--radius-md); cursor: pointer;
+  font-size: var(--text-xs); color: var(--color-charcoal);
+  transition: background var(--duration-micro) var(--ease);
+}
+.thread-item:hover { background: var(--color-bg-warm); }
+.thread-item.active { background: var(--color-accent-soft); color: var(--color-accent); }
+.thread-id { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thread-del {
+  border: none; background: transparent; color: var(--color-slate);
+  cursor: pointer; font-size: 12px; padding: 0 2px;
+}
+.thread-del:hover { color: var(--color-error); }
 </style>

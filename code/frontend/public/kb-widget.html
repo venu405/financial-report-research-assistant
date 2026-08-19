@@ -103,7 +103,13 @@
             try {
               var ev = JSON.parse(line.slice(5));
               if (ev.type === "token") { answer += ev.text; }
-              else if (ev.type === "final") { answer = ev.answer; if (ev.escalate) hint.textContent = "已转人工"; }
+              else if (ev.type === "final") {
+                answer = ev.answer;
+                if (ev.escalate) {
+                  hint.textContent = "已为您转接人工客服";
+                  if (ev.conversation_id) pollStatus(ev.conversation_id);
+                }
+              }
               else if (ev.type === "error") { answer = "❌ " + ev.detail; }
             } catch (e) {}
           });
@@ -118,6 +124,22 @@
       el.classList.remove("typing");
       el.textContent = "❌ 连接失败: " + e.message;
     });
+  }
+
+  // 转人工后轮询坐席接入状态
+  function pollStatus(convId) {
+    var n = 0;
+    var timer = setInterval(function () {
+      n++;
+      fetch(baseURL + "/kb/conversation/" + convId + "/status")
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (d.status === "human") { hint.textContent = "坐席已接入"; clearInterval(timer); }
+          else if (d.status === "closed") { hint.textContent = "服务已结束"; clearInterval(timer); }
+        })
+        .catch(function () {});
+      if (n >= 24) clearInterval(timer); // 最多 2 分钟
+    }, 5000);
   }
 
   send.addEventListener("click", ask);

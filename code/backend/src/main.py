@@ -696,6 +696,10 @@ def create_app() -> FastAPI:
                     detail=f"用户 {user_id} 无知识库 {kb_id} 的写权限（readonly 只读）",
                 )
         else:
+            # P0-1：读操作对「未注册 user_id」（如挂件匿名访客 visitor-*）当匿名放行，
+            # 不 403——否则挂件一开口就被拦。已注册但无权才 403。
+            if kb["auth"].get_user(user_id) is None:
+                return
             if not kb["auth"].can_access(user_id, kb_id):
                 raise HTTPException(
                     status_code=403,
@@ -1028,7 +1032,9 @@ def create_app() -> FastAPI:
                     thread_id=payload.thread_id,
                 ):
                     if event.get("type") == "final":
+                        # P0-2：final 先缓冲不 yield，等会话善后回填 conversation_id/status 再发
                         final_event = event
+                        continue
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
                 # P1：final 之后补齐与同步 /kb/ask 一致的检索日志落库 + escalate 转人工闭环
                 if final_event is not None:
@@ -1068,6 +1074,11 @@ def create_app() -> FastAPI:
                                 action="transfer_to_human",
                                 target=str(conv["id"]),
                             )
+                        # P0-2：回填会话字段，让挂件能轮询坐席状态
+                        final_event["conversation_id"] = conv["id"]
+                        final_event["status"] = "waiting"
+                    # 善后完成后才 yield final
+                    yield f"data: {json.dumps(final_event, ensure_ascii=False)}\n\n"
             except Exception as exc:
                 logger.exception("KB ask stream failed")
                 yield f"data: {json.dumps({'type': 'error', 'detail': str(exc)}, ensure_ascii=False)}\n\n"

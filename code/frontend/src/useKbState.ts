@@ -22,6 +22,11 @@ export interface Doc {
 
 // ---------- 状态（模块级，跨组件共享） ----------
 export const messages = ref<Msg[]>([]);
+// 流式问答：当前正在生成的答案（打字机增量，ChatView 渲染最后一条 assistant 用）
+export const currentStreamMessage = ref("");
+export function setCurrentStreamMessage(text: string) {
+  currentStreamMessage.value = text;
+}
 export const input = ref("");
 export const expandedCites = ref<Set<number>>(new Set());
 export const loading = ref(false);
@@ -37,6 +42,44 @@ export const updatingDocId = ref("");
 export const updateInput = ref<HTMLInputElement | null>(null);
 
 export const threadId = ref(localStorage.getItem(`kb_thread_${currentKb.value}`) || `kb-${Date.now()}`);
+
+// ---------- 多会话（P2-1：列表/切换/删除，接 /kb/threads） ----------
+export const threads = ref<{ thread_id: string; checkpoints: number }[]>([]);
+
+export async function loadThreads() {
+  try {
+    const resp = await fetch(`${baseURL}/kb/threads`, { headers: adminHeaders() });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    threads.value = data.threads || [];
+  } catch {
+    // 非管理员或后端不可用时静默
+  }
+}
+
+export function switchThread(tid: string) {
+  threadId.value = tid;
+  localStorage.setItem(`kb_thread_${currentKb.value}`, tid);
+  messages.value = [];
+}
+
+export async function deleteThread(tid: string) {
+  if (!window.confirm(`删除会话 ${tid.slice(0, 20)}… 的历史记录？`)) return;
+  try {
+    const resp = await fetch(`${baseURL}/kb/threads/${encodeURIComponent(tid)}`, {
+      method: "DELETE",
+      headers: adminHeaders(),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    if (threadId.value === tid) {
+      threadId.value = `kb-${Date.now()}`;
+      messages.value = [];
+    }
+    loadThreads();
+  } catch (e) {
+    adminErr.value = `删除会话失败: ${(e as Error).message}`;
+  }
+}
 
 // ---------- 管理页 ----------
 export const showAdmin = ref(false);
@@ -204,6 +247,7 @@ export async function onSend() {
   messages.value.push({ role: "user", content: question });
   input.value = "";
   loading.value = true;
+  currentStreamMessage.value = "";
   localStorage.setItem(`kb_thread_${currentKb.value}`, threadId.value);
 
   const history = messages.value
@@ -211,7 +255,8 @@ export async function onSend() {
     .map((m) => ({ role: m.role, content: m.content }));
 
   try {
-    const resp = await fetch(`${baseURL}/kb/ask`, {
+    // 统一走流式（聊天框交接文档坑1：主聊天也应有打字机体验）
+    const resp = await fetch(`${baseURL}/kb/ask/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({
@@ -222,27 +267,57 @@ export async function onSend() {
         user_id: isTokenAuth() ? undefined : userToken.value || undefined,
       }),
     });
-    const data = await resp.json();
-    if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
-    messages.value.push({
-      role: "assistant",
-      content: data.answer || "（无回答）",
-      score: data.score,
-      citations: data.citations || [],
-    });
-    if (data.escalate && data.conversation_id) {
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      throw new Error(data.detail || `HTTP ${resp.status}`);
+    }
+    const reader = resp.body!.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    let final: any = null;
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const parts = buf.split("\n\n");
+      buf = parts.pop()!;
+      for (const chunk of parts) {
+        const line = chunk.trim();
+        if (!line.startsWith("data:")) continue;
+        try {
+          const ev = JSON.parse(line.slice(5));
+          if (ev.type === "token") currentStreamMessage.value += ev.text;
+          else if (ev.type === "final") final = ev;
+          else if (ev.type === "error") throw new Error(ev.detail || "流式错误");
+        } catch (e) {
+          // 非 error 解析异常忽略
+        }
+      }
+    }
+    if (final) {
       messages.value.push({
-        role: "system",
-        system: true,
-        content: "已为您转接人工客服，等待接入…",
-        conversationId: data.conversation_id,
+        role: "assistant",
+        content: final.answer || currentStreamMessage.value || "（无回答）",
+        score: final.score,
+        citations: final.citations || [],
       });
-      pollAgentStatus(data.conversation_id);
+      if (final.escalate && final.conversation_id) {
+        messages.value.push({
+          role: "system",
+          system: true,
+          content: "已为您转接人工客服，等待接入…",
+          conversationId: final.conversation_id,
+        });
+        pollAgentStatus(final.conversation_id);
+      }
+    } else {
+      messages.value.push({ role: "assistant", content: currentStreamMessage.value || "（无回答）" });
     }
   } catch (e) {
     messages.value.push({ role: "assistant", content: `❌ 问答失败: ${(e as Error).message}` });
   } finally {
     loading.value = false;
+    currentStreamMessage.value = "";
   }
 }
 

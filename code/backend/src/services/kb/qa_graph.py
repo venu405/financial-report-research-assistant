@@ -60,13 +60,45 @@ def _llm_invoke(llm, messages: list[dict[str, str]], model: str = "deepseek-chat
     return (resp.choices[0].message.content or "").strip()
 
 
+def _llm_stream(llm, messages: list[dict[str, str]], model: str = "deepseek-chat"):
+    """流式 LLM 调用（P1-2）：逐 token yield。兼容 OpenAI 客户端与 LangChain 风格。"""
+    if hasattr(llm, "stream_invoke"):
+        # LangChain 风格（FakeLLM 等）
+        for chunk in llm.stream_invoke(messages):
+            yield chunk
+    else:
+        # OpenAI 兼容客户端：stream=True 逐 token
+        stream = llm.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=0.0,
+            max_tokens=1024,
+            timeout=_LLM_TIMEOUT,
+            stream=True,
+        )
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content if chunk.choices else None
+            if delta:
+                yield delta
+
+
 def _answerability_threshold() -> float:
-    """可回答性门槛阈值：top-1 证据分低于它视为证据不足（0=不启用）。"""
+    """可回答性门槛阈值：top-1 证据分低于它视为证据不足。
+
+    P2：默认 0.5（客服场景门槛应默认开启，防止低分检索硬答胡说 → 触发转人工）。
+    设 KB_ANSWERABILITY_SCORE=0 可显式关闭门槛。
+    """
     raw = os.getenv("KB_ANSWERABILITY_SCORE", "")
     try:
-        return float(raw) if raw else 0.0
+        return float(raw) if raw else 0.5
     except ValueError:
-        return 0.0
+        return 0.5
+
+
+# P2-3：可选降本开关——top-1 证据分高时跳过 LLM 评估。默认关闭（见 node_evaluate）。
+_skip_eval_on_high_score = bool(
+    os.getenv("KB_SKIP_EVAL_ON_HIGH_SCORE", "").strip() in ("1", "true", "yes")
+)
 
 
 def _evidence_score(hit: dict[str, Any]) -> float:
@@ -393,7 +425,16 @@ def build_qa_graph(
         if persona_store:
             messages.append({"role": "system", "content": persona_store.build_system_prompt(kb_id)})
         messages.append({"role": "user", "content": prompt})
-        answer = _llm_invoke(llm, messages, model=model)
+        # P1-2：真 token 级流式——用 get_stream_writer 把每个 token 透传给外层 run_qa_stream。
+        # 非流式（invoke）时 get_stream_writer 返回 no-op writer，_llm_stream 仍累积完整答案。
+        from langgraph.config import get_stream_writer
+
+        writer = get_stream_writer()
+        chunks: list[str] = []
+        for token in _llm_stream(llm, messages, model=model):
+            chunks.append(token)
+            writer({"type": "token", "text": token})
+        answer = "".join(chunks)
 
         # 引用元数据：与答案里的 [n] 对应。
         # P2：平铺定位字段（doc_title/chunk_index/page），前端可直接跳转原文，不用钻 metadata。
@@ -483,6 +524,16 @@ def build_qa_graph(
         low_quality = not answer or ("未检索到" in answer and has_passages)
         score = 0
         if not low_quality:
+            # P2-3（可选降本）：KB_SKIP_EVAL_ON_HIGH_SCORE=1 时，top-1 证据分很高则跳过
+            # LLM 评估直接判通过，省一次调用。默认关闭——忠实度评估是"防胡说"的防线，
+            # 不该因检索分高就跳过（检索强 ≠ 生成忠实）。
+            if _skip_eval_on_high_score:
+                contexts = state.get("contexts", [])
+                top_score = _evidence_score(contexts[0]) if contexts else 0.0
+                if top_score >= 0.8:
+                    score = 10
+                    low_quality = False
+                    return {"retries": retries, "low_quality": low_quality, "score": score}
             # 通过规则检查后，再用 LLM 深度评估忠实度
             score, passed = _evaluate_faithfulness(state)
             low_quality = not passed
@@ -635,18 +686,26 @@ def run_qa_stream(
     }
     config = {"configurable": {"thread_id": thread_id or uuid.uuid4().hex}}
     final_state: dict[str, Any] = dict(initial)
-    for event in graph.stream(initial, config=config, stream_mode="updates"):
-        node = list(event.keys())[0]
-        update = event[node]
-        final_state.update(update)
-        yield {"type": "node", "node": node, "answer": final_state.get("answer", "")}
-    # 答案分块流式（第13项）：把最终答案分块吐出，前端"打字机"效果。
-    # 真正的 LLM token 级流式需 astream_events + OpenAI stream，留作后续；
-    # 此处按小块切分已能满足"字蹦出来"的体验，且不破坏 LangGraph 原子节点语义。
+    token_streamed = False
+    # P1-2：stream_mode=["updates", "custom"]——updates 是节点进度，custom 是 generate
+    # 节点用 get_stream_writer 透传的 LLM token（真 token 级流式）。
+    for event in graph.stream(initial, config=config, stream_mode=["updates", "custom"]):
+        kind, data = event[0], event[1]
+        if kind == "updates":
+            node = list(data.keys())[0]
+            final_state.update(data[node])
+            yield {"type": "node", "node": node, "answer": final_state.get("answer", "")}
+        elif kind == "custom":
+            # token 事件（{"type": "token", "text": ...}）
+            token_streamed = True
+            yield data
+    # 兜底：若 LLM 走非流式分支（无 custom token，如 escalate/refuse 直答），
+    # 把最终 answer 分块吐出，保证前端始终能收到打字机增量。
     answer = final_state.get("answer", "")
-    step = 3  # 每块 3 字符，平衡 SSE 次数与流畅度
-    for i in range(0, len(answer), step):
-        yield {"type": "token", "text": answer[i : i + step]}
+    if not token_streamed and answer:
+        step = 3
+        for i in range(0, len(answer), step):
+            yield {"type": "token", "text": answer[i : i + step]}
     contexts = final_state.get("contexts", [])
     yield {
         "type": "final",

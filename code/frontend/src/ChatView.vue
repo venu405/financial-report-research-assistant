@@ -2,6 +2,7 @@
 import {
   messages, input, loading, expandedCites,
   onSend, sendFeedback, toggleCites, newSession,
+  currentStreamMessage, setCurrentStreamMessage,
 } from "./useKbState";
 </script>
 
@@ -38,7 +39,7 @@ import {
         </template>
       </div>
       <div v-if="loading" class="msg assistant">
-        <div class="bubble typing">思考中<span class="dot">...</span></div>
+        <div class="bubble" :class="{ typing: !currentStreamMessage }">{{ currentStreamMessage || '思考中…' }}</div>
       </div>
     </div>
     <div class="chat-input">
