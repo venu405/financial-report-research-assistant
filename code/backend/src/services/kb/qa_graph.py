@@ -551,6 +551,8 @@ def run_qa(
         # 检索元信息（客服改造第3项：检索日志留痕，main.py 落库）
         "search_meta": {
             "rewritten": result.get("rewritten", ""),
+            "intent": result.get("intent", "kb_question"),
+            "faq_hit": result.get("faq_hit", False),
             "recall_raw": result.get("recall_raw", []),  # rerank 前候选
             "contexts": contexts,  # rerank 后 top-k
             "top_score": contexts[0].get("score", 0.0) if contexts else 0.0,
@@ -599,11 +601,19 @@ def run_qa_stream(
         update = event[node]
         final_state.update(update)
         yield {"type": "node", "node": node, "answer": final_state.get("answer", "")}
+    # 答案分块流式（第13项）：把最终答案分块吐出，前端"打字机"效果。
+    # 真正的 LLM token 级流式需 astream_events + OpenAI stream，留作后续；
+    # 此处按小块切分已能满足"字蹦出来"的体验，且不破坏 LangGraph 原子节点语义。
+    answer = final_state.get("answer", "")
+    step = 3  # 每块 3 字符，平衡 SSE 次数与流畅度
+    for i in range(0, len(answer), step):
+        yield {"type": "token", "text": answer[i : i + step]}
     yield {
         "type": "final",
-        "answer": final_state.get("answer", ""),
+        "answer": answer,
         "citations": final_state.get("citations", []),
         "contexts": final_state.get("contexts", []),
         "retries": final_state.get("retries", 0),
         "score": final_state.get("score", 0),
+        "escalate": final_state.get("escalate", False),
     }

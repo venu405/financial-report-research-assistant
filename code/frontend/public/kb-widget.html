@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>智能客服</title>
+<style>
+  :root { --brand: #2563eb; --bg: #f5f7fb; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; background: transparent; overflow: hidden; }
+  /* 气泡按钮 */
+  #bubble {
+    position: fixed; right: 20px; bottom: 20px; width: 56px; height: 56px;
+    border-radius: 50%; background: var(--brand); color: #fff; border: none;
+    cursor: pointer; font-size: 24px; box-shadow: 0 4px 14px rgba(37,99,235,.35);
+    display: flex; align-items: center; justify-content: center; z-index: 9999;
+  }
+  /* 聊天窗 */
+  #panel {
+    position: fixed; right: 20px; bottom: 90px; width: 340px; height: 480px;
+    background: #fff; border-radius: 14px; box-shadow: 0 8px 30px rgba(0,0,0,.18);
+    display: none; flex-direction: column; overflow: hidden; z-index: 9998;
+  }
+  #panel.open { display: flex; }
+  .hd { background: var(--brand); color: #fff; padding: 12px 16px; font-size: 15px; font-weight: 600; }
+  .hd small { display: block; font-weight: 400; opacity: .85; font-size: 11px; }
+  #msgs { flex: 1; overflow-y: auto; padding: 12px; background: var(--bg); display: flex; flex-direction: column; gap: 8px; }
+  .msg { max-width: 82%; padding: 8px 12px; border-radius: 10px; font-size: 14px; line-height: 1.55; word-break: break-word; white-space: pre-wrap; }
+  .msg.user { align-self: flex-end; background: var(--brand); color: #fff; }
+  .msg.assistant { align-self: flex-start; background: #fff; color: #111; border: 1px solid #e5e7eb; }
+  .cite { font-size: 11px; color: #6b7280; margin-top: 4px; }
+  #input { display: flex; border-top: 1px solid #e5e7eb; padding: 10px; gap: 8px; background: #fff; }
+  #input textarea { flex: 1; border: 1px solid #d1d5db; border-radius: 8px; padding: 8px; font-size: 14px; resize: none; outline: none; font-family: inherit; }
+  #input button { background: var(--brand); color: #fff; border: none; border-radius: 8px; padding: 0 16px; cursor: pointer; font-size: 14px; }
+  .typing::after { content: "▋"; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+</style>
+</head>
+<body>
+  <button id="bubble" title="在线客服">💬</button>
+  <div id="panel">
+    <div class="hd">智能客服 <small id="hint">AI 服务中</small></div>
+    <div id="msgs"></div>
+    <div id="input">
+      <textarea id="q" rows="1" placeholder="输入您的问题…"></textarea>
+      <button id="send">发送</button>
+    </div>
+  </div>
+
+<script>
+(function () {
+  var baseURL = (new URLSearchParams(location.search).get("base")) || "http://localhost:8000";
+  var kbId = (new URLSearchParams(location.search).get("kb_id")) || "default";
+  var channel = (new URLSearchParams(location.search).get("channel")) || "web";
+  // 访客临时身份（不要求登录）
+  var visitorId = localStorage.getItem("kb_visitor_id");
+  if (!visitorId) { visitorId = "visitor-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); localStorage.setItem("kb_visitor_id", visitorId); }
+  var threadId = "kb-" + Date.now();
+
+  var bubble = document.getElementById("bubble");
+  var panel = document.getElementById("panel");
+  var msgs = document.getElementById("msgs");
+  var q = document.getElementById("q");
+  var send = document.getElementById("send");
+  var hint = document.getElementById("hint");
+
+  bubble.addEventListener("click", function () { panel.classList.toggle("open"); });
+
+  function addMsg(role, text) {
+    var d = document.createElement("div");
+    d.className = "msg " + role;
+    d.textContent = text;
+    msgs.appendChild(d);
+    msgs.scrollTop = msgs.scrollHeight;
+    return d;
+  }
+
+  function ask() {
+    var question = q.value.trim();
+    if (!question) return;
+    addMsg("user", question);
+    q.value = "";
+    var el = addMsg("assistant", "");
+    el.classList.add("typing");
+
+    fetch(baseURL + "/kb/ask/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: question, kb_id: kbId, thread_id: threadId, user_id: visitorId }),
+    }).then(function (resp) {
+      var reader = resp.body.getReader();
+      var decoder = new TextDecoder();
+      var buf = "", answer = "";
+      function pump() {
+        return reader.read().then(function (r) {
+          if (r.done) return;
+          buf += decoder.decode(r.value, { stream: true });
+          var parts = buf.split("\n\n");
+          buf = parts.pop();
+          parts.forEach(function (chunk) {
+            var line = chunk.trim();
+            if (!line.startsWith("data:")) return;
+            try {
+              var ev = JSON.parse(line.slice(5));
+              if (ev.type === "token") { answer += ev.text; }
+              else if (ev.type === "final") { answer = ev.answer; if (ev.escalate) hint.textContent = "已转人工"; }
+              else if (ev.type === "error") { answer = "❌ " + ev.detail; }
+            } catch (e) {}
+          });
+          el.classList.remove("typing");
+          el.textContent = answer;
+          msgs.scrollTop = msgs.scrollHeight;
+          return pump();
+        });
+      }
+      return pump();
+    }).catch(function (e) {
+      el.classList.remove("typing");
+      el.textContent = "❌ 连接失败: " + e.message;
+    });
+  }
+
+  send.addEventListener("click", ask);
+  q.addEventListener("keydown", function (e) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(); } });
+})();
+</script>
+</body>
+</html>

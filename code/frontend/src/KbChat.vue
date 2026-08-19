@@ -171,6 +171,13 @@ function onSwitchKb() {
   loadDocs();
 }
 
+// 多会话管理（第14项）：开启新会话——换 threadId + 清空对话
+function newSession() {
+  threadId.value = `kb-${Date.now()}`;
+  localStorage.setItem(`kb_thread_${currentKb.value}`, threadId.value);
+  messages.value = [];
+}
+
 // ---------- 问答 ----------
 async function onSend() {
   const question = input.value.trim();
@@ -436,6 +443,7 @@ loadDocs();
         </div>
       </div>
       <div class="chat-input">
+        <button class="new-session-btn" title="开启新会话" @click="newSession">＋</button>
         <input
           v-model="input"
           placeholder="问知识库：例如「采购超过多少要招投标？」"
@@ -575,4 +583,9 @@ loadDocs();
   padding: 0 20px; cursor: pointer;
 }
 .chat-input button:disabled { opacity: .5; cursor: not-allowed; }
+.chat-input .new-session-btn {
+  background: #fff; color: #2563eb; border: 1px solid #2563eb; border-radius: 8px;
+  padding: 0 14px; font-size: 18px; cursor: pointer;
+}
+.chat-input .new-session-btn:hover { background: #eff6ff; }
 </style>

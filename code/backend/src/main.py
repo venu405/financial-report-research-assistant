@@ -593,6 +593,11 @@ def create_app() -> FastAPI:
             quick_reply_path = Path(cfg.kb_chroma_dir).parent / "kb_quick_replies.db"
             quick_reply_store = QuickReplyStore(quick_reply_path)
 
+            # 客服改造第15项：知识库元数据
+            from services.kb.kb_meta_store import KbMetaStore
+            kb_meta_path = Path(cfg.kb_chroma_dir).parent / "kb_meta.db"
+            kb_meta_store = KbMetaStore(kb_meta_path)
+
             # 客服改造第1项：Rerank 重排器（llm / crossencoder / off 三模式）
             from services.kb.reranker import build_reranker
             reranker = build_reranker(
@@ -655,6 +660,7 @@ def create_app() -> FastAPI:
                     "conversation_store": conversation_store,
                     "ticket_store": ticket_store,
                     "quick_reply_store": quick_reply_store,
+                    "kb_meta_store": kb_meta_store,
                     "checkpoint_conn": _ckpt_conn,  # P2：会话管理接口用（列/删 thread）
                 }
             )
@@ -1865,6 +1871,91 @@ def create_app() -> FastAPI:
         except Exception as exc:
             logger.error("KB delete quick reply failed: {}", exc)
             raise HTTPException(status_code=500, detail=f"删除快捷回复失败: {exc}") from exc
+
+    # ==================== 知识库元数据 CRUD（第15项）====================
+
+    @app.get("/kb/meta")
+    def kb_list_meta(
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """知识库元数据列表（需管理员）。"""
+        try:
+            kb = _get_kb()
+            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            return {"kbs": kb["kb_meta_store"].list()}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("KB list meta failed: {}", exc)
+            raise HTTPException(status_code=500, detail=f"查询知识库失败: {exc}") from exc
+
+    @app.post("/kb/meta")
+    def kb_create_meta(
+        kb_id: str = Form(...),
+        name: str = Form(...),
+        description: str = Form(default=""),
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """建知识库（需管理员）。"""
+        try:
+            kb = _get_kb()
+            operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            meta = kb["kb_meta_store"].create(kb_id, name, description)
+            kb["audit"].record(user_id=operator, action="create_kb", target=kb_id)
+            return meta
+        except HTTPException:
+            raise
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.error("KB create meta failed: {}", exc)
+            raise HTTPException(status_code=500, detail=f"建库失败: {exc}") from exc
+
+    @app.put("/kb/meta/{kb_id}")
+    def kb_update_meta(
+        kb_id: str,
+        name: str | None = Form(default=None),
+        description: str | None = Form(default=None),
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """改知识库名称/描述（需管理员）。"""
+        try:
+            kb = _get_kb()
+            operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            kb["kb_meta_store"].update(kb_id, name=name, description=description)
+            kb["audit"].record(user_id=operator, action="update_kb", target=kb_id)
+            return kb["kb_meta_store"].get(kb_id)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("KB update meta failed: {}", exc)
+            raise HTTPException(status_code=500, detail=f"改库失败: {exc}") from exc
+
+    @app.delete("/kb/meta/{kb_id}")
+    def kb_delete_meta(
+        kb_id: str,
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """删知识库元数据（需管理员）。"""
+        try:
+            kb = _get_kb()
+            operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            removed = kb["kb_meta_store"].delete(kb_id)
+            kb["audit"].record(user_id=operator, action="delete_kb", target=kb_id)
+            return {"kb_id": kb_id, "removed": removed}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("KB delete meta failed: {}", exc)
+            raise HTTPException(status_code=500, detail=f"删库失败: {exc}") from exc
 
     return app
 

@@ -1,0 +1,14 @@
+# 客服问答评估测试集（第16项）
+# 用法：./.venv/Scripts/python.exe scripts/evaluate.py --testset testsets/customer_service.yaml
+kb_id: default
+tests:
+  - question: "你好"
+    expect_intent: smalltalk
+  - question: "帮我转人工客服"
+    expect_intent: human_request
+  - question: "采购金额超过多少必须公开招投标？"
+    expect_intent: kb_question
+    expect_answerable: true
+    expect_keyword: "5万"
+  - question: "帮我写一首关于月亮的诗"
+    expect_intent: out_of_scope
