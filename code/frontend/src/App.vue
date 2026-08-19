@@ -1,6 +1,6 @@
 <template>
   <main class="app-shell" :class="{ expanded: isExpanded }">
-    <!-- 顶部视图切换：深度研究 / 知识库 -->
+    <!-- 顶部视图切换：深度研究 / 知识库 / 客服工作台 -->
     <nav class="view-switch">
       <button :class="{ active: view === 'research' }" @click="view = 'research'">
         🔬 深度研究
@@ -8,7 +8,13 @@
       <button :class="{ active: view === 'kb' }" @click="view = 'kb'">
         📚 知识库管理
       </button>
+      <button :class="{ active: view === 'agent' }" @click="view = 'agent'">
+        💬 客服工作台
+      </button>
     </nav>
+
+    <!-- 客服工作台视图 -->
+    <AgentDesk v-if="view === 'agent'" />
 
     <!-- 知识库视图 -->
     <KbChat v-if="view === 'kb'" />
@@ -376,9 +382,10 @@ import {
   type ResearchStreamEvent
 } from "./services/api";
 import KbChat from "./KbChat.vue";
+import AgentDesk from "./AgentDesk.vue";
 
-// 视图切换：research（深度研究）/ kb（知识库管理）
-const view = ref<"research" | "kb">("research");
+// 视图切换：research（深度研究）/ kb（知识库管理）/ agent（客服工作台）
+const view = ref<"research" | "kb" | "agent">("research");
 
 interface SourceItem {
   title: string;

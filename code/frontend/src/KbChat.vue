@@ -8,7 +8,16 @@ interface Citation {
   index: number; chunk_id: string; text: string;
   metadata: { doc_title?: string; kb_id?: string; doc_id?: string; chunk_index?: number };
 }
-const messages = ref<{ role: "user" | "assistant"; content: string; score?: number; citations?: Citation[] }[]>([]);
+interface Msg {
+  role: "user" | "assistant" | "system";
+  content: string;
+  score?: number;
+  citations?: Citation[];
+  rating?: number;        // 满意度：1=👍 / 0=👎，未评 undefined
+  system?: boolean;       // 系统状态条（转人工提示）
+  conversationId?: number;
+}
+const messages = ref<Msg[]>([]);
 const input = ref("");
 const expandedCites = ref<Set<number>>(new Set());
 function toggleCites(i: number) {
@@ -214,10 +223,77 @@ async function onSend() {
       score: data.score,
       citations: data.citations || [],
     });
+    // 2.2 转人工：escalate 时插入系统状态条，并轮询坐席接入状态
+    if (data.escalate && data.conversation_id) {
+      messages.value.push({
+        role: "system",
+        system: true,
+        content: "已为您转接人工客服，等待接入…",
+        conversationId: data.conversation_id,
+      });
+      pollAgentStatus(data.conversation_id);
+    }
   } catch (e) {
     messages.value.push({ role: "assistant", content: `❌ 问答失败: ${(e as Error).message}` });
   } finally {
     loading.value = false;
+  }
+}
+
+// ---------- 满意度（2.1） ----------
+async function sendFeedback(i: number, rating: number) {
+  const m = messages.value[i];
+  if (!m || m.role !== "assistant" || m.rating !== undefined) return;
+  // 找最近的用户问题（作为 feedback 的 question 字段）
+  let question = "";
+  for (let j = i - 1; j >= 0; j--) {
+    if (messages.value[j].role === "user") { question = messages.value[j].content; break; }
+  }
+  let comment = "";
+  if (rating === 0) {
+    comment = window.prompt("哪里回答得不好？（可选，帮助改进）") || "";
+  }
+  try {
+    const resp = await fetch(`${baseURL}/kb/feedback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        kb_id: currentKb.value,
+        question,
+        answer: m.content,
+        rating,
+        comment,
+      }),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    m.rating = rating;
+  } catch (e) {
+    uploadErr.value = `反馈提交失败: ${(e as Error).message}`;
+  }
+}
+
+// ---------- 转人工轮询（2.2） ----------
+async function pollAgentStatus(convId: number) {
+  // 每 5s 轮询一次会话状态，waiting -> human 时更新状态条，最多 24 次（2 分钟）
+  for (let n = 0; n < 24; n++) {
+    await new Promise((r) => setTimeout(r, 5000));
+    try {
+      const resp = await fetch(`${baseURL}/kb/conversation/${convId}/status`);
+      if (!resp.ok) continue;
+      const data = await resp.json();
+      if (data.status === "human") {
+        const sys = messages.value.find((m) => m.system && m.conversationId === convId);
+        if (sys) sys.content = "坐席已接入，请继续对话。";
+        break;
+      }
+      if (data.status === "closed") {
+        const sys = messages.value.find((m) => m.system && m.conversationId === convId);
+        if (sys) sys.content = "本次服务已结束，感谢咨询。";
+        break;
+      }
+    } catch (e) {
+      // 轮询失败静默继续
+    }
   }
 }
 
@@ -419,24 +495,44 @@ loadDocs();
     <section class="chat-card">
       <div class="chat-body">
         <div v-for="(m, i) in messages" :key="i" class="msg" :class="m.role">
-          <div class="bubble">{{ m.content }}</div>
-          <div v-if="m.score !== undefined && m.role === 'assistant'" class="score-badge">
-            忠实度 {{ m.score }}/10
-          </div>
-          <div v-if="m.citations && m.citations.length" class="cite-area">
-            <button class="cite-toggle" @click="toggleCites(i)">
-              📎 引用 {{ m.citations.length }} 条来源 · {{ expandedCites.has(i) ? '收起' : '展开' }}
-            </button>
-            <div v-if="expandedCites.has(i)" class="cite-list">
-              <div v-for="c in m.citations" :key="c.index" class="cite-card">
-                <div class="cite-head">
-                  [{{ c.index }}] 📄 {{ c.metadata.doc_title || '未命名' }}
-                  <span class="cite-kb">· kb={{ c.metadata.kb_id }}</span>
+          <div v-if="m.system" class="system-bar">{{ m.content }}</div>
+          <template v-else>
+            <div class="bubble">{{ m.content }}</div>
+            <div v-if="m.score !== undefined && m.role === 'assistant'" class="score-badge">
+              忠实度 {{ m.score }}/10
+            </div>
+            <!-- 2.1 满意度评价 -->
+            <div v-if="m.role === 'assistant' && !m.system" class="feedback-bar">
+              <button
+                v-if="m.rating === undefined"
+                class="fb-btn"
+                title="有帮助"
+                @click="sendFeedback(i, 1)"
+              >👍</button>
+              <button
+                v-if="m.rating === undefined"
+                class="fb-btn"
+                title="没帮助"
+                @click="sendFeedback(i, 0)"
+              >👎</button>
+              <span v-if="m.rating === 1" class="fb-thanks">已收到评价 👍</span>
+              <span v-if="m.rating === 0" class="fb-thanks">已收到评价，我们会改进 👎</span>
+            </div>
+            <div v-if="m.citations && m.citations.length" class="cite-area">
+              <button class="cite-toggle" @click="toggleCites(i)">
+                📎 引用 {{ m.citations.length }} 条来源 · {{ expandedCites.has(i) ? '收起' : '展开' }}
+              </button>
+              <div v-if="expandedCites.has(i)" class="cite-list">
+                <div v-for="c in m.citations" :key="c.index" class="cite-card">
+                  <div class="cite-head">
+                    [{{ c.index }}] 📄 {{ c.metadata.doc_title || '未命名' }}
+                    <span class="cite-kb">· kb={{ c.metadata.kb_id }}</span>
+                  </div>
+                  <div class="cite-text">{{ c.text }}</div>
                 </div>
-                <div class="cite-text">{{ c.text }}</div>
               </div>
             </div>
-          </div>
+          </template>
         </div>
         <div v-if="loading" class="msg assistant">
           <div class="bubble typing">思考中<span class="dot">...</span></div>
@@ -546,6 +642,20 @@ loadDocs();
 .msg { display: flex; }
 .msg.user { justify-content: flex-end; }
 .msg.assistant { justify-content: flex-start; }
+.msg.system { justify-content: center; }
+.system-bar {
+  max-width: 90%; padding: 6px 14px; border-radius: 999px;
+  background: var(--color-accent-soft); color: var(--color-accent);
+  font-size: 13px; text-align: center;
+}
+.feedback-bar { display: flex; gap: 6px; margin-top: 4px; align-items: center; }
+.fb-btn {
+  background: transparent; border: 1px solid var(--color-border);
+  border-radius: 6px; padding: 2px 8px; cursor: pointer; font-size: 14px;
+  transition: background var(--duration-micro) var(--ease);
+}
+.fb-btn:hover { background: var(--color-bg-warm); }
+.fb-thanks { font-size: 12px; color: var(--color-charcoal); }
 .bubble {
   max-width: 80%; padding: 10px 14px; border-radius: 12px;
   font-size: 14px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;

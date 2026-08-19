@@ -984,6 +984,18 @@ def create_app() -> FastAPI:
             logger.error("KB ask failed: {}", exc)
             raise HTTPException(status_code=500, detail=f"问答失败: {exc}") from exc
 
+    @app.get("/kb/conversation/{conv_id}/status")
+    def kb_conversation_status(conv_id: int) -> Dict[str, Any]:
+        """查会话状态（访客转人工后轮询坐席是否接入用，无鉴权）。
+
+        返回 {status: ai/waiting/human/closed, agent_id}。会话不存在 404。
+        """
+        kb = _get_kb()
+        conv = kb["conversation_store"].get(conv_id)
+        if not conv:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        return {"conversation_id": conv_id, "status": conv["status"], "agent_id": conv["agent_id"]}
+
     @app.post("/kb/ask/stream")
     def kb_ask_stream(
         payload: KbAskRequest = Body(...), x_api_token: str | None = Header(default=None)
