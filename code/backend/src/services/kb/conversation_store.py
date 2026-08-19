@@ -38,7 +38,7 @@ class ConversationStore:
             """
             CREATE TABLE IF NOT EXISTS conversations (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                thread_id       TEXT NOT NULL,
+                thread_id       TEXT NOT NULL UNIQUE,
                 kb_id           TEXT NOT NULL DEFAULT 'default',
                 visitor_id      TEXT NOT NULL DEFAULT '',
                 status          TEXT NOT NULL DEFAULT 'ai',
@@ -65,7 +65,11 @@ class ConversationStore:
     def get_or_create(
         self, thread_id: str, *, kb_id: str = "default", visitor_id: str = ""
     ) -> dict[str, Any]:
-        """按 thread_id 取会话，不存在则建。返回会话 dict。"""
+        """按 thread_id 取会话，不存在则建。返回会话 dict。
+
+        P2：并发下 INSERT 可能撞 UNIQUE(thread_id)，用 INSERT OR IGNORE 兜底，
+        撞了就查回来（不会抛 IntegrityError，也不会建出重复会话）。
+        """
         row = self._conn.execute(
             "SELECT id, thread_id, kb_id, visitor_id, status, transfer_reason, "
             "agent_id, unread_count, tag, created_at, updated_at "
@@ -74,12 +78,22 @@ class ConversationStore:
         ).fetchone()
         if row:
             return self._row_to_dict(row)
-        cur = self._conn.execute(
-            "INSERT INTO conversations(thread_id, kb_id, visitor_id) VALUES(?,?,?)",
+        self._conn.execute(
+            "INSERT OR IGNORE INTO conversations(thread_id, kb_id, visitor_id) VALUES(?,?,?)",
             (thread_id, kb_id, visitor_id),
         )
         self._conn.commit()
-        return self.get_or_create(thread_id, kb_id=kb_id, visitor_id=visitor_id)
+        row = self._conn.execute(
+            "SELECT id, thread_id, kb_id, visitor_id, status, transfer_reason, "
+            "agent_id, unread_count, tag, created_at, updated_at "
+            "FROM conversations WHERE thread_id=?",
+            (thread_id,),
+        ).fetchone()
+        return self._row_to_dict(row) if row else {
+            "id": 0, "thread_id": thread_id, "kb_id": kb_id, "visitor_id": visitor_id,
+            "status": STATUS_AI, "transfer_reason": "", "agent_id": "",
+            "unread_count": 0, "tag": "", "created_at": "", "updated_at": "",
+        }
 
     def update_status(self, conv_id: int, status: str) -> None:
         self._conn.execute(
@@ -88,12 +102,33 @@ class ConversationStore:
         )
         self._conn.commit()
 
-    def transfer_to_human(self, conv_id: int, reason: str) -> None:
-        """转人工：状态 → waiting，记录原因，清零未读。"""
-        self._conn.execute(
+    def transfer_to_human(self, conv_id: int, reason: str) -> bool:
+        """转人工：ai → waiting。仅 ai 状态可转，human/closed 不覆盖（避免把坐席踢出）。
+
+        返回是否成功转移（False = 已是人工/已关闭，不覆盖）。
+        """
+        cur = self._conn.execute(
             "UPDATE conversations SET status=?, transfer_reason=?, unread_count=0, "
-            "updated_at=? WHERE id=?",
-            (STATUS_WAITING, reason, _utc_now_iso(), conv_id),
+            "updated_at=? WHERE id=? AND status=?",
+            (STATUS_WAITING, reason, _utc_now_iso(), conv_id, STATUS_AI),
+        )
+        self._conn.commit()
+        return cur.rowcount > 0
+
+    def get(self, conv_id: int) -> dict[str, Any] | None:
+        """按 id 查会话，不存在返回 None。"""
+        row = self._conn.execute(
+            "SELECT id, thread_id, kb_id, visitor_id, status, transfer_reason, "
+            "agent_id, unread_count, tag, created_at, updated_at "
+            "FROM conversations WHERE id=?",
+            (conv_id,),
+        ).fetchone()
+        return self._row_to_dict(row) if row else None
+
+    def mark_read(self, conv_id: int) -> None:
+        """清零会话未读数（坐席已读）。"""
+        self._conn.execute(
+            "UPDATE conversations SET unread_count=0 WHERE id=?", (conv_id,)
         )
         self._conn.commit()
 

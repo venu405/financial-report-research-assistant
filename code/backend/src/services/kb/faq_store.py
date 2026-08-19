@@ -148,13 +148,18 @@ class FAQStore:
         return result
 
     def delete_faq(self, faq_id: int) -> int:
-        """删除 FAQ。返回删除条数。"""
+        """删除 FAQ。返回删除条数。
+
+        P2：只移除该 faq 的索引条目，不全量重建（避免删除一次就全库重 embedding）。
+        """
+        row = self._conn.execute("SELECT kb_id FROM faq WHERE id=?", (faq_id,)).fetchone()
         cur = self._conn.execute("DELETE FROM faq WHERE id=?", (faq_id,))
         self._conn.commit()
-        # 重建该 kb 的内存索引（简单可靠，FAQ 量级小）
-        if cur.rowcount > 0:
-            self._index = {}
-            self._load_index()
+        if cur.rowcount > 0 and row:
+            kb_id = row[0]
+            self._index[kb_id] = [
+                e for e in self._index.get(kb_id, []) if e[0] != faq_id
+            ]
         return cur.rowcount
 
     # ---------- Excel 批量导入导出（运营人员维护）----------

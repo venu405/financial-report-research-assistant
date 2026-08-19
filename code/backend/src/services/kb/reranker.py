@@ -123,6 +123,9 @@ class LLMReranker:
             for m in re.finditer(r"^(\d+)\s*[:：]\s*(\d+)\s*$", raw, re.M):
                 idx, s = int(m.group(1)), min(int(m.group(2)), 10)
                 scores[idx] = s
+        # P2：解析不出任何分数时告警（否则静默降级，调参时无从排查）
+        if not scores:
+            logger.warning("LLM 重排解析失败，无有效分数，原文前 200 字: %r", raw[:200])
         return scores
 
 

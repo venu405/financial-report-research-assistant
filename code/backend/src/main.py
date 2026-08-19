@@ -23,7 +23,7 @@ load_dotenv(_ENV_PATH, override=True)
 
 from fastapi import Body, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
-from fastapi.responses import StreamingResponse  # noqa: E402
+from fastapi.responses import Response, StreamingResponse  # noqa: E402
 from loguru import logger  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 
@@ -966,7 +966,15 @@ def create_app() -> FastAPI:
                 kb["conversation_store"].add_message(
                     conv["id"], "assistant", result.get("answer", "")
                 )
-                kb["conversation_store"].transfer_to_human(conv["id"], "可回答性门槛两次不过")
+                transferred = kb["conversation_store"].transfer_to_human(
+                    conv["id"], "可回答性门槛两次不过"
+                )
+                if transferred:
+                    kb["audit"].record(
+                        user_id=user_id or "anonymous",
+                        action="transfer_to_human",
+                        target=str(conv["id"]),
+                    )
                 result["conversation_id"] = conv["id"]
                 result["status"] = "waiting"
             return result
@@ -997,6 +1005,8 @@ def create_app() -> FastAPI:
         from services.kb import qa_graph
 
         def event_iterator() -> Iterator[str]:
+            start = time.time()
+            final_event: Dict[str, Any] | None = None
             try:
                 for event in qa_graph.run_qa_stream(
                     kb["graph"],
@@ -1005,7 +1015,47 @@ def create_app() -> FastAPI:
                     kb_id=payload.kb_id,
                     thread_id=payload.thread_id,
                 ):
+                    if event.get("type") == "final":
+                        final_event = event
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                # P1：final 之后补齐与同步 /kb/ask 一致的检索日志落库 + escalate 转人工闭环
+                if final_event is not None:
+                    meta = final_event.get("search_meta", {})
+                    kb["retrieval_log"].record(
+                        kb_id=payload.kb_id,
+                        thread_id=payload.thread_id or "",
+                        question=payload.question,
+                        rewritten=meta.get("rewritten", ""),
+                        rerank_mode=os.getenv("KB_RERANK_MODE", "llm"),
+                        answerable=not meta.get("escalate", False),
+                        evidence_score=meta.get("top_score", 0.0),
+                        escalate=meta.get("escalate", False),
+                        attempts=meta.get("attempts", 1),
+                        latency_ms={"total": (time.time() - start) * 1000.0},
+                        hits=meta.get("recall_raw", []),
+                        final_hits=meta.get("contexts", []),
+                        faithfulness=final_event.get("score", 0),
+                        answer=final_event.get("answer", ""),
+                    )
+                    if final_event.get("escalate"):
+                        conv = kb["conversation_store"].get_or_create(
+                            payload.thread_id or uuid.uuid4().hex,
+                            kb_id=payload.kb_id,
+                            visitor_id=user_id or "anonymous",
+                        )
+                        kb["conversation_store"].add_message(conv["id"], "user", payload.question)
+                        kb["conversation_store"].add_message(
+                            conv["id"], "assistant", final_event.get("answer", "")
+                        )
+                        transferred = kb["conversation_store"].transfer_to_human(
+                            conv["id"], "可回答性门槛两次不过"
+                        )
+                        if transferred:
+                            kb["audit"].record(
+                                user_id=user_id or "anonymous",
+                                action="transfer_to_human",
+                                target=str(conv["id"]),
+                            )
             except Exception as exc:
                 logger.exception("KB ask stream failed")
                 yield f"data: {json.dumps({'type': 'error', 'detail': str(exc)}, ensure_ascii=False)}\n\n"
@@ -1553,15 +1603,20 @@ def create_app() -> FastAPI:
         """满意度评价（无鉴权，访客/用户均可）。rating: 1=👍 / 0=👎；comment 可选。"""
         try:
             kb = _get_kb()
-            kb_id = payload.get("kb_id", "default")
-            question = payload.get("question", "")
-            answer = payload.get("answer", "")
+            # P2：无鉴权端点必须限流（防刷）
+            if not _kb_ask_limiter.allow("feedback"):
+                raise HTTPException(status_code=429, detail="反馈过于频繁，请稍后再试")
+            kb_id = str(payload.get("kb_id", "default"))[:64]
+            question = str(payload.get("question", ""))[:500]
+            answer = str(payload.get("answer", ""))[:500]
             rating = 1 if payload.get("rating", 1) else 0
-            comment = payload.get("comment", "")
+            comment = str(payload.get("comment", ""))[:500]
             fid = kb["feedback_store"].record(
                 kb_id=kb_id, question=question, answer=answer, rating=rating, comment=comment,
             )
             return {"feedback_id": fid, "rating": rating}
+        except HTTPException:
+            raise
         except Exception as exc:
             logger.error("KB feedback failed: {}", exc)
             raise HTTPException(status_code=500, detail=f"提交反馈失败: {exc}") from exc
@@ -1618,7 +1673,11 @@ def create_app() -> FastAPI:
         try:
             kb = _get_kb()
             operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            if not kb["conversation_store"].get(conv_id):
+                raise HTTPException(status_code=404, detail="会话不存在")
             claimed = kb["conversation_store"].claim(conv_id, operator)
+            if claimed:
+                kb["audit"].record(user_id=operator, action="agent_claim", target=str(conv_id))
             return {"conversation_id": conv_id, "claimed": claimed}
         except HTTPException:
             raise
@@ -1634,16 +1693,20 @@ def create_app() -> FastAPI:
         x_api_token: str | None = Header(default=None),
         x_api_key: str | None = Header(default=None),
     ) -> Dict[str, Any]:
-        """坐席回复（存 agent 消息，清零未读）。"""
+        """坐席回复（存 agent 消息，清零未读）。校验会话存在 + 归属 + 状态。"""
         try:
             kb = _get_kb()
             operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            conv = kb["conversation_store"].get(conv_id)
+            if not conv:
+                raise HTTPException(status_code=404, detail="会话不存在")
+            if conv["status"] != "human":
+                raise HTTPException(status_code=409, detail="会话未在人工服务中")
+            if conv["agent_id"] and conv["agent_id"] != operator:
+                raise HTTPException(status_code=403, detail="该会话由其他坐席处理")
             kb["conversation_store"].add_message(conv_id, "agent", content)
-            # 清零未读（坐席已读）
-            kb["conversation_store"]._conn.execute(
-                "UPDATE conversations SET unread_count=0 WHERE id=?", (conv_id,)
-            )
-            kb["conversation_store"]._conn.commit()
+            kb["conversation_store"].mark_read(conv_id)
+            kb["audit"].record(user_id=operator, action="agent_reply", target=str(conv_id))
             return {"conversation_id": conv_id, "replied": True}
         except HTTPException:
             raise
@@ -1661,8 +1724,11 @@ def create_app() -> FastAPI:
         """结束会话。"""
         try:
             kb = _get_kb()
-            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            if not kb["conversation_store"].get(conv_id):
+                raise HTTPException(status_code=404, detail="会话不存在")
             kb["conversation_store"].close(conv_id)
+            kb["audit"].record(user_id=operator, action="agent_close", target=str(conv_id))
             return {"conversation_id": conv_id, "closed": True}
         except HTTPException:
             raise
@@ -1699,8 +1765,11 @@ def create_app() -> FastAPI:
         """会话打标签（如"退款咨询"），便于统计。"""
         try:
             kb = _get_kb()
-            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            if not kb["conversation_store"].get(conv_id):
+                raise HTTPException(status_code=404, detail="会话不存在")
             kb["conversation_store"].set_tag(conv_id, tag)
+            kb["audit"].record(user_id=operator, action="agent_tag", target=str(conv_id))
             return {"conversation_id": conv_id, "tag": tag}
         except HTTPException:
             raise
@@ -1785,11 +1854,16 @@ def create_app() -> FastAPI:
         """变更工单状态（pending/processing/resolved/closed）。"""
         try:
             kb = _get_kb()
-            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
-            kb["ticket_store"].update_status(ticket_id, status, note)
+            operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            updated = kb["ticket_store"].update_status(ticket_id, status, note)
+            if not updated:
+                raise HTTPException(status_code=404, detail="工单不存在")
+            kb["audit"].record(user_id=operator, action="ticket_status", target=str(ticket_id))
             return {"ticket_id": ticket_id, "status": status}
         except HTTPException:
             raise
+        except ValueError as exc:  # 非法流转/非法状态
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:
             logger.error("KB update ticket failed: {}", exc)
             raise HTTPException(status_code=500, detail=f"更新工单失败: {exc}") from exc
@@ -1805,11 +1879,16 @@ def create_app() -> FastAPI:
         """指派工单给坐席。"""
         try:
             kb = _get_kb()
-            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
-            kb["ticket_store"].assign(ticket_id, assignee)
+            operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            assigned = kb["ticket_store"].assign(ticket_id, assignee)
+            if not assigned:
+                raise HTTPException(status_code=404, detail="工单不存在")
+            kb["audit"].record(user_id=operator, action="ticket_assign", target=str(ticket_id))
             return {"ticket_id": ticket_id, "assignee": assignee}
         except HTTPException:
             raise
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:
             logger.error("KB assign ticket failed: {}", exc)
             raise HTTPException(status_code=500, detail=f"指派失败: {exc}") from exc
@@ -1844,8 +1923,9 @@ def create_app() -> FastAPI:
         """新增快捷回复（需管理员）。"""
         try:
             kb = _get_kb()
-            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
             rid = kb["quick_reply_store"].add(title, content)
+            kb["audit"].record(user_id=operator, action="add_quick_reply", target=str(rid))
             return {"id": rid, "title": title}
         except HTTPException:
             raise
@@ -1863,8 +1943,9 @@ def create_app() -> FastAPI:
         """删除快捷回复（需管理员）。"""
         try:
             kb = _get_kb()
-            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
             removed = kb["quick_reply_store"].delete(reply_id)
+            kb["audit"].record(user_id=operator, action="delete_quick_reply", target=str(reply_id))
             return {"id": reply_id, "removed": removed}
         except HTTPException:
             raise
@@ -1944,13 +2025,18 @@ def create_app() -> FastAPI:
         x_api_token: str | None = Header(default=None),
         x_api_key: str | None = Header(default=None),
     ) -> Dict[str, Any]:
-        """删知识库元数据（需管理员）。"""
+        """删知识库元数据（需管理员）。联动清理该库 Chroma 文档，避免重建时"复活"旧数据。"""
         try:
             kb = _get_kb()
             operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
             removed = kb["kb_meta_store"].delete(kb_id)
-            kb["audit"].record(user_id=operator, action="delete_kb", target=kb_id)
-            return {"kb_id": kb_id, "removed": removed}
+            # P2：双数据源联动——删 meta 同时清 Chroma 文档
+            chunks_deleted = kb["store"].delete_kb(kb_id)
+            kb["audit"].record(
+                user_id=operator, action="delete_kb", target=kb_id,
+                detail={"meta_removed": removed, "chunks_deleted": chunks_deleted},
+            )
+            return {"kb_id": kb_id, "removed": removed, "chunks_deleted": chunks_deleted}
         except HTTPException:
             raise
         except Exception as exc:

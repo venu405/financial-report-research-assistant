@@ -61,12 +61,36 @@ def _llm_invoke(llm, messages: list[dict[str, str]], model: str = "deepseek-chat
 
 
 def _answerability_threshold() -> float:
-    """可回答性门槛阈值：top-1 余弦相似度低于它视为证据不足（0=不启用）。"""
+    """可回答性门槛阈值：top-1 证据分低于它视为证据不足（0=不启用）。"""
     raw = os.getenv("KB_ANSWERABILITY_SCORE", "")
     try:
         return float(raw) if raw else 0.0
     except ValueError:
         return 0.0
+
+
+def _evidence_score(hit: dict[str, Any]) -> float:
+    """从命中里提取证据分，统一归一到 0-1。
+
+    优先级：rerank_score（LLM/crossencoder 都是 0-10 量纲，除以 10）> 余弦 score（0-1）。
+    BM25-only 命中的 chunk 无向量分（score 为 None 或 0），但有 rerank_score 就用 rerank 分；
+    两者都没有时给中性分 0.5——关键词精确命中不能因缺余弦分而被误判"答不了"去转人工。
+    """
+    rs = hit.get("rerank_score")
+    if rs is not None:
+        try:
+            return max(0.0, min(float(rs) / 10.0, 1.0))
+        except (TypeError, ValueError):
+            pass
+    score = hit.get("score")
+    if score is not None:
+        try:
+            s = float(score)
+            if s > 0:
+                return min(s, 1.0)
+        except (TypeError, ValueError):
+            pass
+    return 0.5  # BM25-only 命中：中性分，不误判
 
 
 def _normalize_category(raw: str) -> str:
@@ -260,7 +284,12 @@ def build_qa_graph(
             f"当前问题：{question}\n"
             "只输出改写后的查询，不要解释。"
         )
-        rewritten = _llm_invoke(llm, [{"role": "user", "content": prompt}], model=model)
+        # P1：改写 LLM 调用无降级会 500，这里 try/except 回退原问题（同 guardrail 降级）
+        try:
+            rewritten = _llm_invoke(llm, [{"role": "user", "content": prompt}], model=model)
+        except Exception as exc:
+            logger.warning("查询改写失败，回退原问题: %s", exc)
+            return {"rewritten": question}
         # 🟡15：改写结果校验——LLM 返回寒暄/解释类垃圾文本时回退原问题，
         # 避免垃圾文本被当检索词用（召回质量崩塌）。
         # 合法改写应为单行短查询：含换行（解释/多段）或超长（跑题）都判为无效。
@@ -272,7 +301,11 @@ def build_qa_graph(
 
     def node_retrieve(state: QaState) -> dict[str, Any]:
         """检索：混合检索（向量 + BM25 + RRF 融合）。召回 top_k*2 给 rerank 留空间。"""
-        query = state.get("rewritten") or state["question"]
+        # P2：gate 降级重试时用原问题（rewritten 保留供检索日志记录第一次查询）
+        if state.get("retrieval_attempts", 0) > 0:
+            query = state["question"]
+        else:
+            query = state.get("rewritten") or state["question"]
         recall_k = top_k * 2
         hits = retriever.search(query, top_k=recall_k, kb_id=state.get("kb_id", "default"))
         return {"recall_raw": hits}
@@ -292,26 +325,26 @@ def build_qa_graph(
         return {"contexts": reranked, "passages": passages}
 
     def node_gate(state: QaState) -> dict[str, Any]:
-        """可回答性门槛：rerank 后 top-1 相关性不足时不硬答，走降级链。
+        """可回答性门槛：rerank 后 top-1 证据分不足时不硬答，走降级链。
 
-        降级链：证据不足 → 换问法（清空改写，用原问题）重检索一次 → 仍不足 →
-        标记 escalate（转人工/建工单，第三批落地），generate 生成"如实告知"话术。
+        降级链：证据不足 → 换原问题重检索一次 → 仍不足 → 标记 escalate 转人工。
         阈值 KB_ANSWERABILITY_SCORE（默认 0=不启用门槛）。
         """
         contexts = state.get("contexts", [])
-        top_score = contexts[0].get("score", 0.0) if contexts else 0.0
         threshold = _answerability_threshold()
-        passed = bool(contexts) and top_score >= threshold
-        if passed:
+        # P1：门槛关闭（阈值 <= 0）时直接 pass，空检索也走 generate 的"未检索到"话术
+        if threshold <= 0:
+            return {"gate_action": "pass", "escalate": False}
+        top_score = _evidence_score(contexts[0]) if contexts else 0.0
+        if contexts and top_score >= threshold:
             return {"gate_action": "pass", "escalate": False}
         attempts = state.get("retrieval_attempts", 0)
         if attempts < 1:
-            # 第一次降级：清空改写，用原问题重新检索
+            # 第一次降级：换原问题重检索（不清空 rewritten，由 retrieve 按 attempts 判断）
             logger.info("检索证据不足（top_score=%.3f），换原问题重检索一次", top_score)
             return {
                 "gate_action": "retry",
                 "retrieval_attempts": attempts + 1,
-                "rewritten": "",
                 "escalate": False,
             }
         # 第二次仍不足：如实告知 + 转人工
@@ -337,6 +370,7 @@ def build_qa_graph(
             return {
                 "answer": f"抱歉，知识库中未检索到能准确回答您问题的相关信息，{transfer}",
                 "citations": [],
+                "passages": [],  # P2：清空 passages，避免 evaluate 误判低质量触发无效 generate 重试
             }
         if not passages:
             refuse = (persona or {}).get("refuse_message", "知识库中未检索到相关信息，请尝试换个问法。")
@@ -541,18 +575,23 @@ def run_qa(
     config = {"configurable": {"thread_id": thread_id or uuid.uuid4().hex}}
     result = graph.invoke(initial, config=config)
     contexts = result.get("contexts", [])
+    intent = result.get("intent", "kb_question")
+    faq_hit = result.get("faq_hit", False)
+    # P2：FAQ 直答/闲聊等非检索路径未经过 evaluate，score 是 initial 的 0，
+    # 直接返回会污染忠实度统计——这里统一置 None 表示"未评估"。
+    evaluated = intent not in ("smalltalk", "human_request", "out_of_scope") and not faq_hit
     return {
         "answer": result.get("answer", ""),
         "citations": result.get("citations", []),
         "contexts": contexts,
         "retries": result.get("retries", 0),
-        "score": result.get("score", 0),
+        "score": result.get("score", 0) if evaluated else None,
         "escalate": result.get("escalate", False),
         # 检索元信息（客服改造第3项：检索日志留痕，main.py 落库）
         "search_meta": {
             "rewritten": result.get("rewritten", ""),
-            "intent": result.get("intent", "kb_question"),
-            "faq_hit": result.get("faq_hit", False),
+            "intent": intent,
+            "faq_hit": faq_hit,
             "recall_raw": result.get("recall_raw", []),  # rerank 前候选
             "contexts": contexts,  # rerank 后 top-k
             "top_score": contexts[0].get("score", 0.0) if contexts else 0.0,
@@ -608,12 +647,24 @@ def run_qa_stream(
     step = 3  # 每块 3 字符，平衡 SSE 次数与流畅度
     for i in range(0, len(answer), step):
         yield {"type": "token", "text": answer[i : i + step]}
+    contexts = final_state.get("contexts", [])
     yield {
         "type": "final",
         "answer": answer,
         "citations": final_state.get("citations", []),
-        "contexts": final_state.get("contexts", []),
+        "contexts": contexts,
         "retries": final_state.get("retries", 0),
         "score": final_state.get("score", 0),
         "escalate": final_state.get("escalate", False),
+        # P1：final 补 search_meta，与同步 run_qa 对齐（流式路径也要能落检索日志）
+        "search_meta": {
+            "rewritten": final_state.get("rewritten", ""),
+            "intent": final_state.get("intent", "kb_question"),
+            "faq_hit": final_state.get("faq_hit", False),
+            "recall_raw": final_state.get("recall_raw", []),
+            "contexts": contexts,
+            "top_score": contexts[0].get("score", 0.0) if contexts else 0.0,
+            "attempts": final_state.get("retrieval_attempts", 0) + 1,
+            "escalate": final_state.get("escalate", False),
+        },
     }

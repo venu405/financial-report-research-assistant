@@ -216,6 +216,16 @@ class VectorStore:
         logger.info("Chroma 删除 %d 个分块", len(ids))
         return len(ids)
 
+    def delete_kb(self, kb_id: str) -> int:
+        """删除某知识库的全部 chunk（P2：删库元数据时联动清理 Chroma，避免"复活"旧数据）。"""
+        result = self._collection.get(where={"kb_id": kb_id}, include=[])
+        count = len(result.get("ids", []) or [])
+        if count:
+            self._collection.delete(where={"kb_id": kb_id})
+            self._bump_seq(kb_id)
+        logger.info("删除知识库 %s 的 %d 个分块", kb_id, count)
+        return count
+
     def delete_doc(self, doc_id: str) -> int:
         """按文档删除全部分块（文档删除时用）。返回删除数量。
 
