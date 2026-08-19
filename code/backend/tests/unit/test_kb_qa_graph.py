@@ -47,10 +47,10 @@ def test_qa_graph_retry_on_low_quality(tmp_path):
 def test_qa_graph_no_results_honest(tmp_path):
     store = VectorStore(persist_dir=str(tmp_path))  # 空库
     emb = FakeEmbedding()
-    llm = FakeLLM()  # 不应被调用（generate 直接返回诚实回答，不调 LLM）
+    llm = FakeLLM()  # 仅护栏分类调 1 次 LLM；generate/evaluate 不硬编、不调 LLM
     graph = build_qa_graph(llm=llm, embeddings=emb, vector_store=store, top_k=3)
     result = run_qa(graph, question="随便问问", kb_id="default")
     assert "未检索到" in result["answer"]
     assert result["citations"] == []
     assert result["score"] == 10  # 诚实声明（无资料）满分
-    assert llm.call_count == 0
+    assert llm.call_count == 1  # 只有护栏分类 1 次，generate/evaluate 不调 LLM

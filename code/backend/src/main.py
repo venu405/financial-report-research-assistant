@@ -366,6 +366,17 @@ def create_app() -> FastAPI:
         _require_kb_admin(kb, request.headers.get("X-API-Key"), x_api_token, None)
         return global_metrics.snapshot()
 
+    @app.get("/admin/search-logs")
+    def admin_search_logs(
+        request: Request,
+        limit: int = Query(default=100, ge=1, le=1000),
+        x_api_token: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """检索日志（最近 N 条，需 X-API-Key 或 admin）。客服答错时回放定位用。"""
+        kb = _get_kb()
+        _require_kb_admin(kb, request.headers.get("X-API-Key"), x_api_token, None)
+        return {"total": kb["retrieval_log"].count(), "entries": kb["retrieval_log"].recent(limit)}
+
     @app.get("/metrics")
     def prometheus_metrics() -> Response:
         """Prometheus 文本格式指标（标准抓取端点，无鉴权，供内网监控抓取）。"""
@@ -552,6 +563,19 @@ def create_app() -> FastAPI:
             _ckpt_conn.execute("PRAGMA busy_timeout=5000")
             saver = SqliteSaver(_ckpt_conn)
 
+            # 客服改造第5项：FAQ 存储（标准问+答案+相似问，向量直答）
+            from services.kb.faq_store import FAQStore
+            faq_path = Path(cfg.kb_chroma_dir).parent / "kb_faq.db"
+            faq_store = FAQStore(faq_path, embeddings)
+
+            # 客服改造第1项：Rerank 重排器（llm / crossencoder / off 三模式）
+            from services.kb.reranker import build_reranker
+            reranker = build_reranker(
+                os.getenv("KB_RERANK_MODE", "llm"),
+                llm=llm,
+                model=cfg.llm_model_id or "deepseek-chat",
+            )
+
             graph = qa_graph.build_qa_graph(
                 llm=llm,
                 embeddings=embeddings,
@@ -560,6 +584,9 @@ def create_app() -> FastAPI:
                 checkpointer=saver,
                 model=cfg.llm_model_id or "deepseek-chat",
                 min_score=float(os.getenv("KB_MIN_SIMILARITY", "0") or 0),
+                faq_store=faq_store,
+                faq_threshold=float(os.getenv("KB_FAQ_THRESHOLD", "0.8") or 0.8),
+                reranker=reranker,
             )
 
             # P3 §3.4 / v3 §6.1：RBAC——用户与知识库访问权限（SQLite）
@@ -570,6 +597,11 @@ def create_app() -> FastAPI:
             from services.kb.audit import AuditStore
             audit_path = Path(cfg.kb_chroma_dir).parent / "kb_audit.db"
             audit = AuditStore(audit_path)
+
+            # 客服改造第3项：检索日志留痕（客服答错时回放定位）
+            from services.kb.retrieval_log import RetrievalLogStore
+            retrieval_log_path = Path(cfg.kb_chroma_dir).parent / "kb_retrieval_log.db"
+            retrieval_log = RetrievalLogStore(retrieval_log_path)
 
             # P0-1：从环境变量引导首个 admin（KB_BOOTSTRAP_ADMIN_TOKEN，幂等、永不过期）
             # 生产 bootstrap 入口，替代裸 POST /kb/users 建号。引导后应删除该环境变量。
@@ -590,6 +622,8 @@ def create_app() -> FastAPI:
                     "config": cfg,
                     "auth": auth,
                     "audit": audit,
+                    "retrieval_log": retrieval_log,
+                    "faq_store": faq_store,
                     "checkpoint_conn": _ckpt_conn,  # P2：会话管理接口用（列/删 thread）
                 }
             )
@@ -858,12 +892,31 @@ def create_app() -> FastAPI:
                 raise HTTPException(status_code=429, detail="问答请求过于频繁，请稍后再试")
             from services.kb import qa_graph
 
+            start = time.time()
             result = qa_graph.run_qa(
                 kb["graph"],
                 question=payload.question,
                 history=payload.history,
                 kb_id=payload.kb_id,
                 thread_id=payload.thread_id,
+            )
+            # 客服改造第3项：检索日志留痕（答错时回放定位）
+            meta = result.get("search_meta", {})
+            kb["retrieval_log"].record(
+                kb_id=payload.kb_id,
+                thread_id=payload.thread_id or "",
+                question=payload.question,
+                rewritten=meta.get("rewritten", ""),
+                rerank_mode=os.getenv("KB_RERANK_MODE", "llm"),
+                answerable=not meta.get("escalate", False),
+                evidence_score=meta.get("top_score", 0.0),
+                escalate=meta.get("escalate", False),
+                attempts=meta.get("attempts", 1),
+                latency_ms={"total": (time.time() - start) * 1000.0},
+                hits=meta.get("recall_raw", []),
+                final_hits=meta.get("contexts", []),
+                faithfulness=result.get("score", 0),
+                answer=result.get("answer", ""),
             )
             return result
         except HTTPException:
