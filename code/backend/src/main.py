@@ -568,6 +568,16 @@ def create_app() -> FastAPI:
             faq_path = Path(cfg.kb_chroma_dir).parent / "kb_faq.db"
             faq_store = FAQStore(faq_path, embeddings)
 
+            # 客服改造第6项：AI 客服人设/话术
+            from services.kb.persona_store import PersonaStore
+            persona_path = Path(cfg.kb_chroma_dir).parent / "kb_persona.db"
+            persona_store = PersonaStore(persona_path)
+
+            # 客服改造第7项：满意度反馈
+            from services.kb.feedback_store import FeedbackStore
+            feedback_path = Path(cfg.kb_chroma_dir).parent / "kb_feedback.db"
+            feedback_store = FeedbackStore(feedback_path)
+
             # 客服改造第1项：Rerank 重排器（llm / crossencoder / off 三模式）
             from services.kb.reranker import build_reranker
             reranker = build_reranker(
@@ -587,6 +597,7 @@ def create_app() -> FastAPI:
                 faq_store=faq_store,
                 faq_threshold=float(os.getenv("KB_FAQ_THRESHOLD", "0.8") or 0.8),
                 reranker=reranker,
+                persona_store=persona_store,
             )
 
             # P3 §3.4 / v3 §6.1：RBAC——用户与知识库访问权限（SQLite）
@@ -624,6 +635,8 @@ def create_app() -> FastAPI:
                     "audit": audit,
                     "retrieval_log": retrieval_log,
                     "faq_store": faq_store,
+                    "persona_store": persona_store,
+                    "feedback_store": feedback_store,
                     "checkpoint_conn": _ckpt_conn,  # P2：会话管理接口用（列/删 thread）
                 }
             )
@@ -1336,6 +1349,206 @@ def create_app() -> FastAPI:
         except Exception as exc:
             logger.error("KB delete thread failed: {}", exc)
             raise HTTPException(status_code=500, detail=f"删除失败: {exc}") from exc
+
+    # ==================== FAQ 管理（客服改造第5项：标准问+答案+相似问）====================
+
+    @app.post("/kb/faqs")
+    def kb_add_faq(
+        kb_id: str = Form(default="default"),
+        question: str = Form(...),
+        answer: str = Form(...),
+        similar: str = Form(default=""),
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """新增 FAQ（需管理员）。similar 用分号/逗号分隔多个相似问。"""
+        try:
+            kb = _get_kb()
+            operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            similars = kb["faq_store"]._split_similars(similar)
+            faq_id = kb["faq_store"].add_faq(kb_id, question, answer, similars)
+            kb["audit"].record(
+                user_id=operator, action="add_faq", target=str(faq_id),
+                detail={"kb_id": kb_id, "question": question[:50]},
+            )
+            return {"faq_id": faq_id, "question": question}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("KB add faq failed: {}", exc)
+            raise HTTPException(status_code=500, detail=f"新增 FAQ 失败: {exc}") from exc
+
+    @app.get("/kb/faqs")
+    def kb_list_faqs(
+        kb_id: str | None = None,
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """列出 FAQ（需管理员；kb_id 可筛选）。"""
+        try:
+            kb = _get_kb()
+            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            return {"faqs": kb["faq_store"].list_faqs(kb_id=kb_id)}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("KB list faqs failed: {}", exc)
+            raise HTTPException(status_code=500, detail=f"查询 FAQ 失败: {exc}") from exc
+
+    @app.delete("/kb/faqs/{faq_id}")
+    def kb_delete_faq(
+        faq_id: int,
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """删除 FAQ（需管理员）。"""
+        try:
+            kb = _get_kb()
+            operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            removed = kb["faq_store"].delete_faq(faq_id)
+            kb["audit"].record(
+                user_id=operator, action="delete_faq", target=str(faq_id),
+            )
+            return {"faq_id": faq_id, "removed": removed}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("KB delete faq failed: {}", exc)
+            raise HTTPException(status_code=500, detail=f"删除 FAQ 失败: {exc}") from exc
+
+    @app.post("/kb/faqs/import")
+    def kb_import_faqs(
+        file: UploadFile = File(...),
+        kb_id: str = Form(default="default"),
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """Excel 批量导入 FAQ（需管理员）。模板：标准问 | 答案 | 相似问（分号分隔）。"""
+        try:
+            kb = _get_kb()
+            operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            result = kb["faq_store"].import_excel(file.file.read(), kb_id)
+            kb["audit"].record(
+                user_id=operator, action="import_faq", target=kb_id,
+                detail={"imported": result["imported"], "skipped": result["skipped"]},
+            )
+            return result
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("KB import faqs failed: {}", exc)
+            raise HTTPException(status_code=500, detail=f"导入 FAQ 失败: {exc}") from exc
+
+    @app.get("/kb/faqs/export")
+    def kb_export_faqs(
+        kb_id: str | None = None,
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Response:
+        """导出 FAQ 为 Excel（需管理员）。"""
+        try:
+            kb = _get_kb()
+            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            content = kb["faq_store"].export_excel(kb_id=kb_id)
+            return Response(
+                content=content,
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={"Content-Disposition": "attachment; filename=faqs.xlsx"},
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("KB export faqs failed: {}", exc)
+            raise HTTPException(status_code=500, detail=f"导出 FAQ 失败: {exc}") from exc
+
+    # ==================== 客服人设（第6项）+ 满意度（第7项）====================
+
+    @app.get("/kb/persona")
+    def kb_get_persona(
+        kb_id: str = Query(default="default"),
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """获取客服人设（需管理员）。"""
+        try:
+            kb = _get_kb()
+            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            return {"kb_id": kb_id, "persona": kb["persona_store"].get_persona(kb_id)}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("KB get persona failed: {}", exc)
+            raise HTTPException(status_code=500, detail=f"获取人设失败: {exc}") from exc
+
+    @app.put("/kb/persona")
+    def kb_set_persona(
+        payload: Dict[str, Any] = Body(...),
+        kb_id: str = Query(default="default"),
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """更新客服人设（需管理员）。字段：company_name/service_hours/tone/
+        refuse_message/transfer_message。"""
+        try:
+            kb = _get_kb()
+            operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            kb["persona_store"].set_persona(kb_id, payload)
+            kb["audit"].record(user_id=operator, action="set_persona", target=kb_id)
+            return {"kb_id": kb_id, "persona": kb["persona_store"].get_persona(kb_id)}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("KB set persona failed: {}", exc)
+            raise HTTPException(status_code=500, detail=f"更新人设失败: {exc}") from exc
+
+    @app.post("/kb/feedback")
+    def kb_feedback(
+        payload: Dict[str, Any] = Body(...),
+    ) -> Dict[str, Any]:
+        """满意度评价（无鉴权，访客/用户均可）。rating: 1=👍 / 0=👎；comment 可选。"""
+        try:
+            kb = _get_kb()
+            kb_id = payload.get("kb_id", "default")
+            question = payload.get("question", "")
+            answer = payload.get("answer", "")
+            rating = 1 if payload.get("rating", 1) else 0
+            comment = payload.get("comment", "")
+            fid = kb["feedback_store"].record(
+                kb_id=kb_id, question=question, answer=answer, rating=rating, comment=comment,
+            )
+            return {"feedback_id": fid, "rating": rating}
+        except Exception as exc:
+            logger.error("KB feedback failed: {}", exc)
+            raise HTTPException(status_code=500, detail=f"提交反馈失败: {exc}") from exc
+
+    @app.get("/kb/feedback")
+    def kb_list_feedback(
+        negative_only: bool = Query(default=False),
+        limit: int = Query(default=100, ge=1, le=1000),
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """满意度反馈列表（需管理员）；negative_only=True 只看差评（复盘用）。"""
+        try:
+            kb = _get_kb()
+            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            return {
+                "total": kb["feedback_store"].count(negative_only=negative_only),
+                "entries": kb["feedback_store"].recent(limit, negative_only=negative_only),
+            }
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("KB list feedback failed: {}", exc)
+            raise HTTPException(status_code=500, detail=f"查询反馈失败: {exc}") from exc
 
     return app
 

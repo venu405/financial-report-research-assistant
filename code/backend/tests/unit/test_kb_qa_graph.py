@@ -21,7 +21,7 @@ def _make_env(tmp_path):
 def test_qa_graph_answer_with_citations_and_score(tmp_path):
     store, emb = _make_env(tmp_path)
     llm = FakeLLM(route={
-        "你是企业知识库助手": "根据制度，超过5万元必须公开招投标。[1]",
+        "仅基于以下资料": "根据制度，超过5万元必须公开招投标。[1]",
         "RAG 质量评估员": "10",
     })
     graph = build_qa_graph(llm=llm, embeddings=emb, vector_store=store, top_k=3)
@@ -35,7 +35,7 @@ def test_qa_graph_answer_with_citations_and_score(tmp_path):
 def test_qa_graph_retry_on_low_quality(tmp_path):
     store, emb = _make_env(tmp_path)
     llm = FakeLLM(route={
-        "你是企业知识库助手": "乱编的答案[1]",
+        "仅基于以下资料": "乱编的答案[1]",
         "RAG 质量评估员": "2",  # 持续低分 → 重试 1 次（MAX_RETRY=1）后结束
     })
     graph = build_qa_graph(llm=llm, embeddings=emb, vector_store=store, top_k=3)

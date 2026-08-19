@@ -156,3 +156,63 @@ class FAQStore:
             self._index = {}
             self._load_index()
         return cur.rowcount
+
+    # ---------- Excel 批量导入导出（运营人员维护）----------
+    @staticmethod
+    def _split_similars(raw: str) -> list[str]:
+        """相似问拆分：分号/逗号/换行分隔，去空白去空。"""
+        import re
+
+        return [s.strip() for s in re.split(r"[;；,，\n]", raw or "") if s.strip()]
+
+    def import_excel(self, file_bytes: bytes, kb_id: str) -> dict[str, Any]:
+        """从 Excel 批量导入 FAQ。模板：标准问 | 答案 | 相似问（分号分隔）。
+
+        行级校验：标准问、答案必填；跳过表头；逐行导入，单行失败不影响其它行。
+        返回 {imported, skipped, errors: [{row, reason}]}。
+        """
+        import io
+
+        from openpyxl import load_workbook
+
+        wb = load_workbook(io.BytesIO(file_bytes), read_only=True)
+        ws = wb.active
+        imported, skipped = 0, 0
+        errors: list[dict[str, Any]] = []
+        for i, row in enumerate(ws.iter_rows(values_only=True), start=1):
+            if i == 1:  # 表头
+                continue
+            if not row or all(c is None or str(c).strip() == "" for c in row):
+                continue  # 空行
+            question = str(row[0]).strip() if row[0] is not None else ""
+            answer = str(row[1]).strip() if len(row) > 1 and row[1] is not None else ""
+            similars_raw = str(row[2]) if len(row) > 2 and row[2] is not None else ""
+            if not question or not answer:
+                skipped += 1
+                errors.append({"row": i, "reason": "标准问或答案为空"})
+                continue
+            try:
+                self.add_faq(kb_id, question, answer, self._split_similars(similars_raw))
+                imported += 1
+            except Exception as exc:
+                skipped += 1
+                errors.append({"row": i, "reason": str(exc)})
+        return {"imported": imported, "skipped": skipped, "errors": errors}
+
+    def export_excel(self, kb_id: str | None = None) -> bytes:
+        """导出 FAQ 为 Excel 字节流（模板同导入）。"""
+        import io
+
+        from openpyxl import Workbook
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "FAQ"
+        ws.append(["标准问", "答案", "相似问（分号分隔）"])
+        for faq in self.list_faqs(kb_id=kb_id):
+            ws.append(
+                [faq["question"], faq["answer"], "；".join(faq["similar_questions"])]
+            )
+        buf = io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue()

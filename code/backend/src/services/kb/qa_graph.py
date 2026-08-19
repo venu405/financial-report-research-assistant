@@ -121,6 +121,7 @@ def build_qa_graph(
     faq_store: Any = None,
     faq_threshold: float = 0.8,
     reranker: Any = None,
+    persona_store: Any = None,
 ) -> Any:
     """构建 LangGraph 问答图。llm 为 OpenAI 兼容客户端（DeepSeek）。
 
@@ -130,6 +131,7 @@ def build_qa_graph(
     min_score（P0）：向量相关性阈值，余弦相似度低于它视为未命中（0=不过滤）。
     faq_store（客服改造第5项）：FAQ 存储，faq 意图先走 FAQ 直答；None 则跳过。
     reranker（客服改造第1项）：重排器（reranker.py），None 时用 NoopReranker。
+    persona_store（客服改造第6项）：客服人设/话术，generate 拼 system prompt。
     """
     from services.kb.retriever import HybridRetriever, VectorOnlyRetriever
     from services.kb.reranker import NoopReranker
@@ -176,23 +178,28 @@ def build_qa_graph(
     def node_direct_reply(state: QaState) -> dict[str, Any]:
         """非检索类意图的轻量回复（闲聊/转人工/拒绝），不进检索、不调生成。"""
         intent = state.get("intent", "kb_question")
+        kb_id = state.get("kb_id", "default")
+        persona = persona_store.get_persona(kb_id) if persona_store else None
         if intent == "smalltalk":
+            company = (persona or {}).get("company_name", "本公司")
             return {
-                "answer": "您好！我是企业智能客服，可以为您解答产品、流程等业务问题，请问有什么可以帮您？",
+                "answer": f"您好！我是{company}的智能客服，可以为您解答产品、流程等业务问题，请问有什么可以帮您？",
                 "citations": [],
             }
         if intent == "human_request":
+            transfer = (persona or {}).get("transfer_message", "已为您转接人工客服，请稍候。")
             return {
-                "answer": "好的，已为您转接人工客服，请稍候。",
+                "answer": transfer,
                 "citations": [],
                 "escalate": True,
             }
         if intent == "out_of_scope":
+            refuse = (persona or {}).get("refuse_message", "抱歉，我只能回答与本公司业务相关的问题。")
             return {
-                "answer": "抱歉，我只能回答与本公司业务相关的问题，无法处理您的这个请求。",
+                "answer": refuse,
                 "citations": [],
             }
-        # ticket_intent / faq：第 5/10 项落地前，先走知识库检索兜底
+        # ticket_intent / faq：走后续链路兜底
         return {}
 
     def node_faq_lookup(state: QaState) -> dict[str, Any]:
@@ -322,24 +329,25 @@ def build_qa_graph(
     def node_generate(state: QaState) -> dict[str, Any]:
         """生成：把检索到的分块作为上下文，LLM 生成带引用的答案。"""
         passages = state.get("passages", [])
+        kb_id = state.get("kb_id", "default")
+        persona = persona_store.get_persona(kb_id) if persona_store else None
         # 可回答性门槛两次不过：如实告知 + 转人工（客服防胡说的命门）
         if state.get("escalate"):
+            transfer = (persona or {}).get("transfer_message", "已为您转接人工客服，请稍候。")
             return {
-                "answer": "抱歉，知识库中未检索到能准确回答您问题的相关信息，已为您转接人工客服，请稍候。",
+                "answer": f"抱歉，知识库中未检索到能准确回答您问题的相关信息，{transfer}",
                 "citations": [],
             }
         if not passages:
-            return {
-                "answer": "知识库中未检索到相关信息，请尝试换个问法或补充文档。",
-                "citations": [],
-            }
+            refuse = (persona or {}).get("refuse_message", "知识库中未检索到相关信息，请尝试换个问法。")
+            return {"answer": refuse, "citations": []}
 
         # 构造上下文：编号分块，让 LLM 用 [1][2] 标注引用
         context_block = "\n\n".join(
             f"[{i+1}] {p}" for i, p in enumerate(passages)
         )
         prompt = (
-            "你是企业知识库助手。仅基于以下资料回答用户问题。\n"
+            "仅基于以下资料回答用户问题。\n"
             "要求：\n"
             "1. 若资料不足，明确说明缺少相关信息\n"
             "2. 回答末尾用 [编号] 标注引用来源（如 [1][2]）\n"
@@ -347,7 +355,11 @@ def build_qa_graph(
             f"问题：{state['question']}\n"
             "回答："
         )
-        answer = _llm_invoke(llm, [{"role": "user", "content": prompt}], model=model)
+        messages: list[dict[str, str]] = []
+        if persona_store:
+            messages.append({"role": "system", "content": persona_store.build_system_prompt(kb_id)})
+        messages.append({"role": "user", "content": prompt})
+        answer = _llm_invoke(llm, messages, model=model)
 
         # 引用元数据：与答案里的 [n] 对应。
         # P2：平铺定位字段（doc_title/chunk_index/page），前端可直接跳转原文，不用钻 metadata。
