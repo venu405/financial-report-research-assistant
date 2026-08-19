@@ -1,0 +1,104 @@
+<script setup lang="ts">
+import {
+  kbs, currentKb, userToken, onSwitchKb, logout,
+} from "./useKbState";
+
+defineProps<{ active: string }>();
+const emit = defineEmits<{ (e: "select", tab: string): void }>();
+
+const navItems = [
+  { key: "chat", label: "💬 对话", icon: "💬" },
+  { key: "docs", label: "📄 文档", icon: "📄" },
+  { key: "agent", label: "🛎 工作台", icon: "🛎" },
+  { key: "admin", label: "⚙️ 管理", icon: "⚙️" },
+];
+</script>
+
+<template>
+  <aside class="sidebar">
+    <div class="workspace">🏢 企业知识库</div>
+
+    <nav class="nav">
+      <button
+        v-for="n in navItems"
+        :key="n.key"
+        class="nav-item"
+        :class="{ active: active === n.key }"
+        @click="emit('select', n.key)"
+      >
+        {{ n.icon }} {{ n.label }}
+      </button>
+    </nav>
+
+    <div class="kb-picker">
+      <div class="label">知识库</div>
+      <select v-model="currentKb" @change="onSwitchKb">
+        <option v-for="k in kbs" :key="k" :value="k">{{ k }}</option>
+        <option v-if="!kbs.length" value="default">default</option>
+      </select>
+      <input
+        v-model="userToken"
+        class="token"
+        placeholder="API Token（kb_ 开头）"
+        @change="onSwitchKb"
+      />
+      <button v-if="userToken" class="logout" @click="logout">登出</button>
+    </div>
+  </aside>
+</template>
+
+<style scoped>
+.sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  height: 100vh;
+  background: var(--color-bg-quiet);
+  border-right: 1px solid var(--color-border);
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-sizing: border-box;
+  position: sticky;
+  top: 0;
+}
+.workspace {
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-base);
+  padding: 0 8px;
+}
+.nav { display: flex; flex-direction: column; gap: 2px; }
+.nav-item {
+  text-align: left;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  color: var(--color-charcoal);
+  transition: background var(--duration-micro) var(--ease);
+}
+.nav-item:hover { background: var(--color-bg-warm); }
+.nav-item.active { background: var(--color-accent-soft); color: var(--color-accent); font-weight: var(--weight-medium); }
+.kb-picker { display: flex; flex-direction: column; gap: 8px; padding: 0 8px; }
+.label { font-size: var(--text-xs); color: var(--color-slate); }
+.kb-picker select,
+.kb-picker input {
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  background: var(--color-bg);
+  color: var(--color-ink);
+}
+.logout {
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  border-radius: var(--radius-md);
+  padding: 6px;
+  cursor: pointer;
+  font-size: var(--text-sm);
+  color: var(--color-charcoal);
+}
+</style>
