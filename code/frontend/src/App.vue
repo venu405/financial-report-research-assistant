@@ -1138,8 +1138,8 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: center;
   align-items: center;
-  background: radial-gradient(circle at 20% 20%, #f8fafc, #dbeafe 60%);
-  color: #1f2937;
+  background: var(--color-bg); /* Notion：纯白画布，不用渐变 */
+  color: var(--color-ink);
   overflow: hidden;
   box-sizing: border-box;
   transition: padding 0.4s ease;
@@ -1154,7 +1154,7 @@ onBeforeUnmount(() => {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  opacity: 0.55;
+  opacity: 0.22; /* 极淡，仅保留一点暖灰氛围 */
 }
 
 .aurora span {
@@ -1163,7 +1163,7 @@ onBeforeUnmount(() => {
   height: 45vw;
   max-width: 520px;
   max-height: 520px;
-  background: radial-gradient(circle, rgba(148, 197, 255, 0.35), transparent 60%);
+  background: radial-gradient(circle, rgba(0, 117, 222, 0.06), transparent 60%);
   filter: blur(90px);
   animation: float 26s infinite linear;
 }
@@ -1177,14 +1177,14 @@ onBeforeUnmount(() => {
 .aurora span:nth-child(2) {
   bottom: -25%;
   right: -20%;
-  background: radial-gradient(circle, rgba(166, 139, 255, 0.28), transparent 60%);
+  background: radial-gradient(circle, rgba(0, 117, 222, 0.04), transparent 60%);
   animation-delay: -9s;
 }
 
 .aurora span:nth-child(3) {
   top: 35%;
   left: 45%;
-  background: radial-gradient(circle, rgba(164, 219, 216, 0.26), transparent 60%);
+  background: radial-gradient(circle, rgba(97, 93, 89, 0.04), transparent 60%);
   animation-delay: -16s;
 }
 
@@ -1213,12 +1213,11 @@ onBeforeUnmount(() => {
 .panel {
   position: relative;
   flex: 1 1 360px;
-  padding: 24px;
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.95);
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.12);
-  backdrop-filter: blur(8px);
+  padding: var(--space-5);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border); /* Notion：超细边框替代重阴影 */
+  box-shadow: var(--shadow-sm);
   overflow: hidden;
 }
 
@@ -1230,14 +1229,15 @@ onBeforeUnmount(() => {
   width: 100%;
   max-width: 600px;
   padding: 40px;
-  box-shadow: 0 32px 64px rgba(15, 23, 42, 0.15);
+  box-shadow: var(--shadow-md);
   transform: scale(1);
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  transition: transform var(--duration-small) var(--ease),
+    box-shadow var(--duration-small) var(--ease);
 }
 
 .panel-centered:hover {
-  transform: scale(1.02);
-  box-shadow: 0 40px 80px rgba(15, 23, 42, 0.2);
+  transform: scale(1.01);
+  box-shadow: var(--shadow-md);
 }
 
 .panel-result {
@@ -1249,9 +1249,9 @@ onBeforeUnmount(() => {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(125, 86, 255, 0.1));
+  background: var(--color-accent-soft);
   opacity: 0;
-  transition: opacity 0.35s ease;
+  transition: opacity var(--duration-small) var(--ease);
   z-index: 0;
 }
 
@@ -1288,9 +1288,8 @@ onBeforeUnmount(() => {
   height: 52px;
   display: grid;
   place-items: center;
-  border-radius: 16px;
-  background: linear-gradient(135deg, #2563eb, #7c3aed);
-  box-shadow: 0 12px 28px rgba(59, 130, 246, 0.4);
+  border-radius: var(--radius-md);
+  background: var(--color-accent); /* Notion：纯色蓝，不用渐变 */
 }
 
 .logo svg {
@@ -1319,22 +1318,24 @@ onBeforeUnmount(() => {
 textarea,
 input,
 select {
-  padding: 14px 16px;
-  border-radius: 16px;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  background: rgba(255, 255, 255, 0.92);
-  color: #1f2937;
-  font-size: 14px;
-  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-size: var(--text-sm);
+  font-family: var(--font-sans);
+  transition: border-color var(--duration-micro) var(--ease),
+    box-shadow var(--duration-micro) var(--ease);
 }
 
 textarea:focus,
 input:focus,
 select:focus {
   outline: none;
-  border-color: rgba(37, 99, 235, 0.65);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
-  background: #ffffff;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
+  background: var(--color-bg);
 }
 
 .options {
@@ -1357,15 +1358,16 @@ select:focus {
 
 .submit {
   align-self: flex-start;
-  padding: 12px 24px;
-  border-radius: 16px;
+  padding: 10px 20px;
+  border-radius: var(--radius-md);
   border: none;
-  background: linear-gradient(135deg, #2563eb, #7c3aed);
+  background: var(--color-accent); /* Notion：纯色蓝按钮 */
   color: #ffffff;
-  font-size: 15px;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
   cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
+  transition: background var(--duration-micro) var(--ease),
+    transform var(--duration-micro) var(--ease);
   display: inline-flex;
   align-items: center;
   gap: 10px;
@@ -1393,8 +1395,7 @@ select:focus {
 }
 
 .submit:not(:disabled):hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 28px rgba(37, 99, 235, 0.28);
+  background: var(--color-accent-hover);
 }
 
 .secondary-btn {
