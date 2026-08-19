@@ -1272,7 +1272,7 @@ onBeforeUnmount(() => {
 
 .panel-form p {
   margin: 4px 0 0;
-  color: #64748b;
+  color: var(--color-charcoal);
   font-size: 13px;
 }
 
@@ -1295,7 +1295,7 @@ onBeforeUnmount(() => {
 .logo svg {
   width: 28px;
   height: 28px;
-  fill: #f8fafc;
+  fill: var(--color-bg-quiet);
 }
 
 .form {
@@ -1312,7 +1312,7 @@ onBeforeUnmount(() => {
 
 .field span {
   font-weight: 600;
-  color: #475569;
+  color: var(--color-charcoal);
 }
 
 textarea,
@@ -1362,7 +1362,7 @@ select:focus {
   border-radius: var(--radius-md);
   border: none;
   background: var(--color-accent); /* Notion：纯色蓝按钮 */
-  color: #ffffff;
+  color: var(--color-bg);
   font-size: var(--text-sm);
   font-weight: var(--weight-medium);
   cursor: pointer;
@@ -1403,7 +1403,7 @@ select:focus {
   border-radius: 14px;
   background: rgba(148, 163, 184, 0.12);
   border: 1px solid rgba(148, 163, 184, 0.28);
-  color: #1f2937;
+  color: var(--color-ink-soft);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
@@ -1413,7 +1413,7 @@ select:focus {
 .secondary-btn:hover {
   background: rgba(148, 163, 184, 0.2);
   border-color: rgba(148, 163, 184, 0.35);
-  color: #0f172a;
+  color: var(--color-ink);
 }
 
 .error-chip {
@@ -1425,7 +1425,7 @@ select:focus {
   background: rgba(248, 113, 113, 0.12);
   border: 1px solid rgba(248, 113, 113, 0.35);
   border-radius: 14px;
-  color: #b91c1c;
+  color: var(--color-error);
   font-size: 14px;
 }
 
@@ -1469,7 +1469,7 @@ select:focus {
   padding: 8px 14px;
   border-radius: 999px;
   font-size: 13px;
-  color: #1f2937;
+  color: var(--color-ink-soft);
   border: 1px solid rgba(59, 130, 246, 0.35);
   transition: background 0.3s ease, color 0.3s ease;
 }
@@ -1477,20 +1477,20 @@ select:focus {
 .status-chip.active {
   background: rgba(129, 140, 248, 0.2);
   border-color: rgba(129, 140, 248, 0.4);
-  color: #1e293b;
+  color: var(--color-ink);
 }
 
 .status-chip .dot {
   width: 8px;
   height: 8px;
   border-radius: 999px;
-  background: #2563eb;
+  background: var(--color-accent);
   box-shadow: 0 0 12px rgba(37, 99, 235, 0.45);
   animation: pulse 1.8s ease-in-out infinite;
 }
 
 .status-meta {
-  color: #64748b;
+  color: var(--color-charcoal);
   font-size: 13px;
 }
 
@@ -1545,7 +1545,7 @@ select:focus {
 .timeline li {
   position: relative;
   padding-left: 24px;
-  color: #1e293b;
+  color: var(--color-ink);
   font-size: 14px;
   line-height: 1.5;
 }
@@ -1557,7 +1557,7 @@ select:focus {
   width: 10px;
   height: 10px;
   border-radius: 999px;
-  background: linear-gradient(135deg, #38bdf8, #7c3aed);
+  background: linear-gradient(135deg, var(--color-accent), var(--color-accent));
   box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.22);
 }
 
@@ -1600,7 +1600,7 @@ select:focus {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--color-ink-soft);
 }
 
 .tasks-list ul {
@@ -1645,7 +1645,7 @@ select:focus {
 .task-title {
   font-weight: 600;
   font-size: 14px;
-  color: #1e293b;
+  color: var(--color-ink);
 }
 
 .task-status {
@@ -1656,35 +1656,35 @@ select:focus {
   border-radius: 999px;
   font-size: 12px;
   font-weight: 500;
-  color: #1f2937;
+  color: var(--color-ink-soft);
   background: rgba(148, 163, 184, 0.2);
 }
 
 .task-status.pending {
   background: rgba(148, 163, 184, 0.18);
-  color: #475569;
+  color: var(--color-charcoal);
 }
 
 .task-status.in_progress {
   background: rgba(129, 140, 248, 0.24);
-  color: #312e81;
+  color: var(--color-brand-deep);
 }
 
 .task-status.completed {
   background: rgba(34, 197, 94, 0.2);
-  color: #15803d;
+  color: var(--color-success);
 }
 
 .task-status.skipped {
   background: rgba(248, 113, 113, 0.18);
-  color: #b91c1c;
+  color: var(--color-error);
 }
 
 .task-intent {
   margin: 0;
   padding: 0 14px 12px 14px;
   font-size: 13px;
-  color: #64748b;
+  color: var(--color-charcoal);
 }
 
 .task-detail {
@@ -1717,7 +1717,7 @@ select:focus {
   margin: 0;
   font-size: 18px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--color-ink-soft);
 }
 
 .task-header .muted {
@@ -1730,13 +1730,13 @@ select:focus {
   background: rgba(191, 219, 254, 0.32);
   border: 1px solid rgba(59, 130, 246, 0.35);
   font-size: 12px;
-  color: #1e3a8a;
+  color: var(--color-brand-deep);
 }
 
 .task-label.note-chip {
   background: rgba(34, 197, 94, 0.2);
   border-color: rgba(34, 197, 94, 0.35);
-  color: #15803d;
+  color: var(--color-success);
 }
 
 .task-label.path-chip {
@@ -1746,7 +1746,7 @@ select:focus {
   max-width: 360px;
   background: rgba(56, 189, 248, 0.2);
   border-color: rgba(56, 189, 248, 0.35);
-  color: #0369a1;
+  color: var(--color-accent);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1766,7 +1766,7 @@ select:focus {
 .chip-action {
   border: none;
   background: rgba(56, 189, 248, 0.2);
-  color: #0369a1;
+  color: var(--color-accent);
   padding: 3px 8px;
   border-radius: 10px;
   font-size: 11px;
@@ -1776,7 +1776,7 @@ select:focus {
 
 .chip-action:hover {
   background: rgba(14, 165, 233, 0.28);
-  color: #0f172a;
+  color: var(--color-ink);
 }
 
 .task-notices {
@@ -1784,7 +1784,7 @@ select:focus {
   border: 1px solid rgba(96, 165, 250, 0.35);
   border-radius: 16px;
   padding: 14px 18px;
-  color: #1f2937;
+  color: var(--color-ink-soft);
 }
 
 .task-notices h4 {
@@ -1820,7 +1820,7 @@ select:focus {
   margin: 0;
   font-size: 18px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--color-ink-soft);
 }
 
 .block-pre {
@@ -1830,7 +1830,7 @@ select:focus {
   line-height: 1.7;
   white-space: pre-wrap;
   word-break: break-word;
-  color: #1f2937;
+  color: var(--color-ink-soft);
   background: rgba(248, 250, 252, 0.9);
   padding: 16px;
   border-radius: 14px;
@@ -1882,7 +1882,7 @@ select:focus {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--color-ink-soft);
   letter-spacing: 0.02em;
 }
 
@@ -1915,12 +1915,12 @@ select:focus {
 
 .tool-entry-title {
   font-weight: 600;
-  color: #1f2937;
+  color: var(--color-ink-soft);
 }
 
 .tool-entry-note {
   font-size: 12px;
-  color: #0f766e;
+  color: var(--color-success);
 }
 
 .tool-entry-path {
@@ -1929,13 +1929,13 @@ select:focus {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #2563eb;
+  color: var(--color-accent);
 }
 
 .tool-subtitle {
   margin: 0;
   font-size: 13px;
-  color: #475569;
+  color: var(--color-charcoal);
   font-weight: 500;
 }
 
@@ -1946,7 +1946,7 @@ select:focus {
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
-  color: #1f2937;
+  color: var(--color-ink-soft);
   background: rgba(248, 250, 252, 0.9);
   padding: 12px;
   border-radius: 12px;
@@ -1973,7 +1973,7 @@ select:focus {
 .link-btn {
   background: none;
   border: none;
-  color: #0369a1;
+  color: var(--color-accent);
   cursor: pointer;
   padding: 0 4px;
   font-size: 12px;
@@ -1982,7 +1982,7 @@ select:focus {
 }
 
 .link-btn:hover {
-  color: #0ea5e9;
+  color: var(--color-accent);
   background: rgba(14, 165, 233, 0.16);
 }
 
@@ -2007,7 +2007,7 @@ select:focus {
 
 .sources-history h4 {
   margin: 0;
-  color: #1f2937;
+  color: var(--color-ink-soft);
   font-size: 14px;
   letter-spacing: 0.01em;
 }
@@ -2023,7 +2023,7 @@ select:focus {
   border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: 14px;
   padding: 12px 16px;
-  color: #1f2937;
+  color: var(--color-ink-soft);
   transition: border-color 0.2s ease, background 0.2s ease;
 }
 
@@ -2065,7 +2065,7 @@ select:focus {
 .sources-block h3,
 .summary-block h3 {
   margin: 0 0 14px;
-  color: #1f2937;
+  color: var(--color-ink-soft);
   letter-spacing: 0.02em;
 }
 
@@ -2086,7 +2086,7 @@ select:focus {
 }
 
 .source-link {
-  color: #2563eb;
+  color: var(--color-accent);
   text-decoration: none;
   font-weight: 600;
   letter-spacing: 0.01em;
@@ -2100,7 +2100,7 @@ select:focus {
 }
 
 .source-link:hover {
-  color: #0f172a;
+  color: var(--color-ink);
 }
 
 .source-tooltip {
@@ -2110,7 +2110,7 @@ select:focus {
   left: 50%;
   transform: translateX(-50%);
   background: rgba(255, 255, 255, 0.98);
-  color: #1f2937;
+  color: var(--color-ink-soft);
   padding: 14px 16px;
   border-radius: 16px;
   box-shadow: 0 18px 32px rgba(15, 23, 42, 0.18);
@@ -2153,7 +2153,7 @@ select:focus {
 }
 
 .muted-text {
-  color: #64748b;
+  color: var(--color-charcoal);
 }
 
 .source-item:hover .source-tooltip,
@@ -2162,7 +2162,7 @@ select:focus {
 }
 
 .hint.muted {
-  color: #64748b;
+  color: var(--color-charcoal);
 }
 
 @keyframes float {
@@ -2284,7 +2284,7 @@ select:focus {
   font-size: 24px;
   font-weight: 700;
   margin: 0;
-  color: #1f2937;
+  color: var(--color-ink-soft);
 }
 
 .back-btn {
@@ -2295,7 +2295,7 @@ select:focus {
   background: transparent;
   border: 1px solid rgba(148, 163, 184, 0.3);
   border-radius: 12px;
-  color: #64748b;
+  color: var(--color-charcoal);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
@@ -2305,8 +2305,8 @@ select:focus {
 
 .back-btn:hover:not(:disabled) {
   background: rgba(59, 130, 246, 0.1);
-  border-color: #3b82f6;
-  color: #3b82f6;
+  border-color: var(--color-accent);
+  color: var(--color-accent);
 }
 
 .back-btn:disabled {
@@ -2332,24 +2332,24 @@ select:focus {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: #64748b;
+  color: var(--color-charcoal);
 }
 
 .info-item p {
   margin: 0;
   font-size: 14px;
-  color: #1f2937;
+  color: var(--color-ink-soft);
   line-height: 1.6;
 }
 
 .topic-display {
   font-size: 16px !important;
   font-weight: 600;
-  color: #0f172a !important;
+  color: var(--color-ink) !important;
   padding: 12px;
   background: rgba(59, 130, 246, 0.05);
   border-radius: 8px;
-  border-left: 3px solid #3b82f6;
+  border-left: 3px solid var(--color-accent);
 }
 
 .progress-bar {
@@ -2362,14 +2362,14 @@ select:focus {
 
 .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+  background: linear-gradient(90deg, var(--color-accent), var(--color-accent));
   border-radius: 4px;
   transition: width 0.5s ease;
 }
 
 .progress-text {
   font-size: 13px !important;
-  color: #64748b !important;
+  color: var(--color-charcoal) !important;
   font-weight: 500;
 }
 
@@ -2387,7 +2387,7 @@ select:focus {
   justify-content: center;
   gap: 8px;
   padding: 14px 20px;
-  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  background: linear-gradient(135deg, var(--color-accent), var(--color-accent));
   border: none;
   border-radius: 12px;
   color: white;
@@ -2451,7 +2451,7 @@ select:focus {
   display: flex;
   gap: 4px;
   background: rgba(255, 255, 255, 0.9);
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--color-border);
   border-radius: 999px;
   padding: 4px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
@@ -2464,11 +2464,11 @@ select:focus {
   border-radius: 999px;
   cursor: pointer;
   font-size: 13px;
-  color: #6b7280;
+  color: var(--color-charcoal);
   transition: all 0.2s;
 }
 .view-switch button.active {
-  background: #2563eb;
-  color: #fff;
+  background: var(--color-accent);
+  color: var(--color-bg);
 }
 </style>
