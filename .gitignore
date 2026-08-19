@@ -39,6 +39,15 @@ _归档/
 # 上传临时文件
 *_upload_*
 
+# KB 测试数据（巨潮/法规抓取产出，运行时数据不入库）
+code/backend/data_kb_test/
+
+# 抓取脚本临时产出（backend 根目录的 docx）
+code/backend/*.docx
+
+# 聊天框交接文档（仅本地保留，不进仓库）
+聊天框交接文档.md
+
 # Node / 前端
 node_modules/
 dist/
