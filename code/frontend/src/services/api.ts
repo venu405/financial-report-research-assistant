@@ -16,9 +16,13 @@ export interface AgentConversation {
   agent_id: string;
   unread_count: number;
   tag: string;
+  priority?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface AgentMessage {
+  id?: number;
   role: string;
   content: string;
   created_at: string;
@@ -33,10 +37,47 @@ export interface QuickReply {
 export interface Ticket {
   id: number;
   ticket_no: string;
+  conversation_id?: number | null;
   title: string;
   status: string;
   assignee: string;
+  kb_id?: string;
+  priority?: string;
+  due_at?: string | null;
   description?: string;
+  created_at?: string;
+  updated_at?: string;
+  progress?: TicketProgress[];
+}
+
+export interface TicketProgress {
+  action: string;
+  note: string;
+  created_at: string;
+}
+
+export interface OperationsAlert {
+  id: number | string;
+  level?: string;
+  severity?: string;
+  title?: string;
+  message?: string;
+  detail?: string;
+  created_at?: string;
+  acknowledged?: boolean;
+  acked?: boolean;
+  status?: string;
+}
+
+export interface OperationsDashboard {
+  generated_at?: string;
+  sessions?: Record<string, unknown>;
+  conversations?: Record<string, unknown>;
+  tickets?: Record<string, unknown>;
+  satisfaction?: Record<string, unknown>;
+  rag_quality?: Record<string, unknown>;
+  rag?: Record<string, unknown>;
+  [key: string]: unknown;
 }
 
 /** 管理接口鉴权头：X-API-Key（ADMIN_API_KEY）或 admin 的 X-Api-Token，二选一 */
@@ -94,7 +135,7 @@ export function listQuickReplies(apiKey: string, token: string): Promise<{ quick
 }
 
 export function createTicket(
-  payload: { conversation_id?: number; title: string; description: string },
+  payload: { conversation_id?: number; title: string; description: string; kb_id?: string; priority?: string; due_hours?: number },
   apiKey: string,
   token: string
 ): Promise<{ ticket_id: number; ticket_no: string }> {
@@ -108,4 +149,61 @@ export function createTicket(
 
 export function listTickets(apiKey: string, token: string): Promise<{ tickets: Ticket[] }> {
   return agentFetch(`/kb/tickets`, {}, apiKey, token);
+}
+
+export function getTicket(ticketId: number, apiKey: string, token: string): Promise<Ticket> {
+  return agentFetch(`/kb/tickets/${ticketId}`, {}, apiKey, token);
+}
+
+export function updateTicketStatus(
+  ticketId: number,
+  status: string,
+  note: string,
+  apiKey: string,
+  token: string
+): Promise<{ ticket_id: number; status: string }> {
+  const form = new FormData();
+  form.append("status", status);
+  form.append("note", note);
+  return agentFetch(`/kb/tickets/${ticketId}/status`, { method: "POST", body: form }, apiKey, token);
+}
+
+export function assignTicket(
+  ticketId: number,
+  assignee: string,
+  apiKey: string,
+  token: string
+): Promise<{ ticket_id: number; assignee: string }> {
+  const form = new FormData();
+  form.append("assignee", assignee);
+  return agentFetch(`/kb/tickets/${ticketId}/assign`, { method: "POST", body: form }, apiKey, token);
+}
+
+export function fetchOperationsDashboard(
+  apiKey: string,
+  token: string
+): Promise<OperationsDashboard> {
+  return agentFetch(`/kb/operations/dashboard`, {}, apiKey, token);
+}
+
+export function fetchOperationsAlerts(
+  apiKey: string,
+  token: string
+): Promise<{ alerts: OperationsAlert[] }> {
+  return agentFetch(`/kb/operations/alerts`, {}, apiKey, token).then((data) => ({
+    alerts: Array.isArray(data) ? data : data.alerts || [],
+  }));
+}
+
+export function acknowledgeOperationsAlert(
+  alertId: number | string,
+  apiKey: string,
+  token: string
+): Promise<{ id: number | string; acknowledged: boolean }> {
+  return agentFetch(
+    `/kb/operations/alerts/${encodeURIComponent(String(alertId))}/ack`,
+    { method: "POST" },
+    apiKey,
+    token
+  );
 }

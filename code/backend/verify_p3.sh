@@ -12,7 +12,8 @@ echo "=== 2. default 库文档列表（历史 2 份应可见）==="
 $CURL "$BASE/kb/docs?kb_id=default"; echo
 
 # 创建一份测试文档上传到 product 库
-TMP="C:/Users/venu/AppData/Local/Temp/p3_test_$$.md"
+TMP="$(mktemp "${TMPDIR:-/tmp}/p3_test.XXXXXX.md")"
+trap 'rm -f "$TMP"' EXIT
 printf "# 产品手册\n本产品保修期为 2 年。\n电池容量 5000mAh。\n充电功率 65W。\n" > "$TMP"
 
 echo "=== 3. 上传到 product 库（应返回 doc_id + kb_id=product）==="
@@ -51,5 +52,4 @@ else
   echo "=== 9-11 跳过：未取到 product 库 doc_id ==="
 fi
 
-: # cleanup skipped (sandbox hooks rm)
 echo "=== 验证结束 ==="

@@ -8,7 +8,12 @@
 """
 from __future__ import annotations
 
-from services.kb.qa_graph import _evidence_score, _answerability_threshold, build_qa_graph, run_qa
+from services.kb.qa_graph import (
+    _answerability_threshold,
+    _evidence_score,
+    build_qa_graph,
+    run_qa,
+)
 from services.kb.vector_store import VectorStore
 from tests.mocks import FakeEmbedding, FakeLLM
 

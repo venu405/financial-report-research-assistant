@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import datetime as _dt
 import logging
+import os
+import secrets
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -59,6 +61,16 @@ class ConversationStore:
             CREATE INDEX IF NOT EXISTS idx_conv_status ON conversations(status);
             """
         )
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(conversations)")}
+        migrations = {
+            "priority": "TEXT NOT NULL DEFAULT 'normal'",
+            "sla_due_at": "TEXT",
+            "first_response_at": "TEXT",
+            "last_customer_at": "TEXT",
+        }
+        for name, definition in migrations.items():
+            if name not in columns:
+                self._conn.execute(f"ALTER TABLE conversations ADD COLUMN {name} {definition}")
         self._conn.commit()
 
     # ---------- 会话 ----------
@@ -72,12 +84,25 @@ class ConversationStore:
         """
         row = self._conn.execute(
             "SELECT id, thread_id, kb_id, visitor_id, status, transfer_reason, "
-            "agent_id, unread_count, tag, created_at, updated_at "
+            "agent_id, unread_count, tag, created_at, updated_at, priority, sla_due_at, "
+            "first_response_at, last_customer_at "
             "FROM conversations WHERE thread_id=?",
             (thread_id,),
         ).fetchone()
         if row:
-            return self._row_to_dict(row)
+            existing = self._row_to_dict(row)
+            if visitor_id and existing["visitor_id"] and not secrets.compare_digest(
+                visitor_id, existing["visitor_id"]
+            ):
+                raise PermissionError("会话不属于当前用户")
+            if visitor_id and not existing["visitor_id"]:
+                self._conn.execute(
+                    "UPDATE conversations SET visitor_id=? WHERE id=?",
+                    (visitor_id, existing["id"]),
+                )
+                self._conn.commit()
+                existing["visitor_id"] = visitor_id
+            return existing
         self._conn.execute(
             "INSERT OR IGNORE INTO conversations(thread_id, kb_id, visitor_id) VALUES(?,?,?)",
             (thread_id, kb_id, visitor_id),
@@ -85,7 +110,8 @@ class ConversationStore:
         self._conn.commit()
         row = self._conn.execute(
             "SELECT id, thread_id, kb_id, visitor_id, status, transfer_reason, "
-            "agent_id, unread_count, tag, created_at, updated_at "
+            "agent_id, unread_count, tag, created_at, updated_at, priority, sla_due_at, "
+            "first_response_at, last_customer_at "
             "FROM conversations WHERE thread_id=?",
             (thread_id,),
         ).fetchone()
@@ -93,7 +119,44 @@ class ConversationStore:
             "id": 0, "thread_id": thread_id, "kb_id": kb_id, "visitor_id": visitor_id,
             "status": STATUS_AI, "transfer_reason": "", "agent_id": "",
             "unread_count": 0, "tag": "", "created_at": "", "updated_at": "",
+            "priority": "normal", "sla_due_at": None, "first_response_at": None,
+            "last_customer_at": None,
         }
+
+    def get_by_thread(self, thread_id: str) -> dict[str, Any] | None:
+        """按 thread_id 查会话。"""
+        row = self._conn.execute(
+            "SELECT id, thread_id, kb_id, visitor_id, status, transfer_reason, "
+            "agent_id, unread_count, tag, created_at, updated_at, priority, sla_due_at, "
+            "first_response_at, last_customer_at "
+            "FROM conversations WHERE thread_id=?",
+            (thread_id,),
+        ).fetchone()
+        return self._row_to_dict(row) if row else None
+
+    def list_for_owner(self, owner_key: str, limit: int = 100) -> list[dict[str, Any]]:
+        """列出某个登录用户或签名访客拥有的会话。"""
+        rows = self._conn.execute(
+            "SELECT id, thread_id, kb_id, visitor_id, status, transfer_reason, "
+            "agent_id, unread_count, tag, created_at, updated_at, priority, sla_due_at, "
+            "first_response_at, last_customer_at "
+            "FROM conversations WHERE visitor_id=? ORDER BY updated_at DESC LIMIT ?",
+            (owner_key, limit),
+        ).fetchall()
+        return [self._row_to_dict(row) for row in rows]
+
+    def delete_owned(self, thread_id: str, owner_key: str) -> bool:
+        """删除归属匹配的会话及其全部消息。"""
+        row = self._conn.execute(
+            "SELECT id FROM conversations WHERE thread_id=? AND visitor_id=?",
+            (thread_id, owner_key),
+        ).fetchone()
+        if not row:
+            return False
+        self._conn.execute("DELETE FROM messages WHERE conversation_id=?", (row[0],))
+        self._conn.execute("DELETE FROM conversations WHERE id=?", (row[0],))
+        self._conn.commit()
+        return True
 
     def update_status(self, conv_id: int, status: str) -> None:
         self._conn.execute(
@@ -107,10 +170,14 @@ class ConversationStore:
 
         返回是否成功转移（False = 已是人工/已关闭，不覆盖）。
         """
+        minutes = max(1, int(os.getenv("KB_AGENT_SLA_MINUTES", "10")))
+        due_at = (
+            _dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(minutes=minutes)
+        ).isoformat()
         cur = self._conn.execute(
             "UPDATE conversations SET status=?, transfer_reason=?, unread_count=0, "
-            "updated_at=? WHERE id=? AND status=?",
-            (STATUS_WAITING, reason, _utc_now_iso(), conv_id, STATUS_AI),
+            "sla_due_at=?, updated_at=? WHERE id=? AND status=?",
+            (STATUS_WAITING, reason, due_at, _utc_now_iso(), conv_id, STATUS_AI),
         )
         self._conn.commit()
         return cur.rowcount > 0
@@ -119,7 +186,8 @@ class ConversationStore:
         """按 id 查会话，不存在返回 None。"""
         row = self._conn.execute(
             "SELECT id, thread_id, kb_id, visitor_id, status, transfer_reason, "
-            "agent_id, unread_count, tag, created_at, updated_at "
+            "agent_id, unread_count, tag, created_at, updated_at, priority, sla_due_at, "
+            "first_response_at, last_customer_at "
             "FROM conversations WHERE id=?",
             (conv_id,),
         ).fetchone()
@@ -150,14 +218,16 @@ class ConversationStore:
         if status:
             rows = self._conn.execute(
                 "SELECT id, thread_id, kb_id, visitor_id, status, transfer_reason, "
-                "agent_id, unread_count, tag, created_at, updated_at "
+                "agent_id, unread_count, tag, created_at, updated_at, priority, sla_due_at, "
+                "first_response_at, last_customer_at "
                 "FROM conversations WHERE status=? ORDER BY updated_at DESC LIMIT ?",
                 (status, limit),
             ).fetchall()
         else:
             rows = self._conn.execute(
                 "SELECT id, thread_id, kb_id, visitor_id, status, transfer_reason, "
-                "agent_id, unread_count, tag, created_at, updated_at "
+                "agent_id, unread_count, tag, created_at, updated_at, priority, sla_due_at, "
+                "first_response_at, last_customer_at "
                 "FROM conversations ORDER BY updated_at DESC LIMIT ?",
                 (limit,),
             ).fetchall()
@@ -169,6 +239,8 @@ class ConversationStore:
 
     # ---------- 消息 ----------
     def add_message(self, conversation_id: int, role: str, content: str) -> int:
+        if role not in {"user", "assistant", "agent", "system"}:
+            raise ValueError(f"非法消息角色: {role}")
         cur = self._conn.execute(
             "INSERT INTO messages(conversation_id, role, content) VALUES(?,?,?)",
             (conversation_id, role, content),
@@ -177,21 +249,80 @@ class ConversationStore:
         # 访客消息则未读 +1（坐席视角）
         if role == "user":
             self._conn.execute(
-                "UPDATE conversations SET unread_count=unread_count+1, updated_at=? WHERE id=?",
-                (_utc_now_iso(), conversation_id),
+                "UPDATE conversations SET unread_count=unread_count+1,last_customer_at=?,updated_at=? WHERE id=?",
+                (_utc_now_iso(), _utc_now_iso(), conversation_id),
+            )
+            self._conn.commit()
+        elif role == "agent":
+            self._conn.execute(
+                "UPDATE conversations SET first_response_at=COALESCE(first_response_at,?),"
+                "updated_at=? WHERE id=?",
+                (_utc_now_iso(), _utc_now_iso(), conversation_id),
             )
             self._conn.commit()
         return cur.lastrowid
 
     def list_messages(self, conversation_id: int, limit: int = 200) -> list[dict[str, Any]]:
         rows = self._conn.execute(
-            "SELECT role, content, created_at FROM messages "
+            "SELECT id, role, content, created_at FROM messages "
             "WHERE conversation_id=? ORDER BY id DESC LIMIT ?",
             (conversation_id, limit),
         ).fetchall()
         return [
-            {"role": r[0], "content": r[1], "created_at": r[2]} for r in reversed(rows)
+            {"id": r[0], "role": r[1], "content": r[2], "created_at": r[3]}
+            for r in reversed(rows)
         ]
+
+    def recent_model_history(
+        self, conversation_id: int, limit: int = 20
+    ) -> list[dict[str, str]]:
+        """读取最近消息并转换成模型可接受的 user/assistant 历史。"""
+        history: list[dict[str, str]] = []
+        for message in self.list_messages(conversation_id, limit=limit):
+            role = message["role"]
+            if role == "user":
+                history.append({"role": "user", "content": message["content"]})
+            elif role in {"assistant", "agent"}:
+                history.append({"role": "assistant", "content": message["content"]})
+        return history
+
+    def set_priority(self, conv_id: int, priority: str) -> bool:
+        if priority not in {"low", "normal", "high", "urgent"}:
+            raise ValueError("非法会话优先级")
+        cur = self._conn.execute(
+            "UPDATE conversations SET priority=?,updated_at=? WHERE id=?",
+            (priority, _utc_now_iso(), conv_id),
+        )
+        self._conn.commit()
+        return cur.rowcount > 0
+
+    def sla_breaches(self) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            "SELECT id, thread_id, kb_id, visitor_id, status, transfer_reason, "
+            "agent_id, unread_count, tag, created_at, updated_at, priority, sla_due_at, "
+            "first_response_at, last_customer_at FROM conversations "
+            "WHERE status IN ('waiting','human') AND first_response_at IS NULL "
+            "AND sla_due_at IS NOT NULL AND sla_due_at < ?",
+            (_utc_now_iso(),),
+        ).fetchall()
+        return [self._row_to_dict(row) for row in rows]
+
+    def active_load(self, agent_id: str) -> int:
+        row = self._conn.execute(
+            "SELECT COUNT(*) FROM conversations WHERE status='human' AND agent_id=?",
+            (agent_id,),
+        ).fetchone()
+        return int(row[0] if row else 0)
+
+    def stats(self) -> dict[str, int]:
+        result = {"total": 0, "ai": 0, "waiting": 0, "human": 0, "closed": 0, "sla_breached": 0}
+        for status, count in self._conn.execute(
+            "SELECT status,COUNT(*) FROM conversations GROUP BY status"
+        ):
+            result[str(status)] = int(count)
+            result["total"] += int(count)
+        result["sla_breached"] = len(self.sla_breaches())
+        return result
 
     @staticmethod
     def _row_to_dict(r: tuple) -> dict[str, Any]:
@@ -207,4 +338,8 @@ class ConversationStore:
             "tag": r[8],
             "created_at": r[9],
             "updated_at": r[10],
+            "priority": r[11],
+            "sla_due_at": r[12],
+            "first_response_at": r[13],
+            "last_customer_at": r[14],
         }

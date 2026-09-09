@@ -194,3 +194,15 @@ class RetrievalLogStore:
         else:
             row = self._conn.execute("SELECT COUNT(*) FROM retrieval_log").fetchone()
         return row[0] if row else 0
+
+    def stats(self) -> dict[str, float | int]:
+        row = self._conn.execute(
+            "SELECT COUNT(*),AVG(CASE WHEN faithfulness IS NOT NULL THEN faithfulness END),"
+            "AVG(escalate),AVG(evidence_score) FROM retrieval_log"
+        ).fetchone()
+        return {
+            "total": int(row[0] or 0) if row else 0,
+            "avg_faithfulness": round(float(row[1] or 0), 2) if row else 0.0,
+            "escalation_rate": round(float(row[2] or 0), 4) if row else 0.0,
+            "avg_evidence_score": round(float(row[3] or 0), 4) if row else 0.0,
+        }

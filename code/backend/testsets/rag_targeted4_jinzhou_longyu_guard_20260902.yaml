@@ -1,0 +1,81 @@
+# 从 rag_real_quality_v2.yaml 原样抽取的四题 Chroma 定向质量契约。
+# 仅用于一次性 targeted run；不得修改字段以迎合候选答案。
+name: rag_targeted4_jinzhou_longyu_guard_20260902
+version: 2
+kb_id: cninfo_report
+description: >-
+  四题定向质量集：Jinzhou 双字段门禁、Longyu 字段绑定，以及 Huawei/Shenlian 防退化。
+source_roots:
+  - data_kb_test/cninfo
+  - data_kb_test/cninfo_annual
+tests:
+  - id: real_jinzhou_port_2025_plan_not_promise
+    category: page_section_evidence
+    kb_id: cninfo_report
+    question: "锦州港2024年年报披露的2025年经营计划中，计划营业收入是多少？该计划是否构成业绩承诺？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keywords_all: ["17.21亿元", "不构成对投资者的业绩承诺"]
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo_annual/ST锦港-锦州港股份有限公司2024年年度报告.pdf
+    expected_pages: [25]
+    expected_evidence:
+      - "公司拟定2025年度计划实现营业收入17.21亿元"
+      - "上述经营计划并不构成公司对投资者的业绩承诺"
+    expected_answer: "计划营业收入为17.21亿元；报告明确说明该经营计划不构成对投资者的业绩承诺。"
+    tags: [page_evidence, section, plan, refusal_boundary]
+
+  - id: real_longyu_2024_revenue
+    category: numeric_table
+    kb_id: cninfo_report
+    question: "上海龙宇数据2024年营业收入是多少？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keyword: "1,404,920,973.02"
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo_annual/ST龙宇-上海龙宇数据股份有限公司2024年年度报告.pdf
+    expected_pages: [7]
+    expected_evidence:
+      - "主要会计数据"
+      - "营业收入 1,404,920,973.02"
+    expected_answer: "2024年营业收入为1,404,920,973.02元。"
+    tags: [numeric, table, company_year]
+
+  - id: real_huawei_2024_revenue
+    category: numeric_table
+    kb_id: cninfo_report
+    question: "吉林华微电子2024年营业收入是多少？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keyword: "2,057,608,183.78"
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo_annual/ST华微-吉林华微电子股份有限公司2024年年度报告.pdf
+    expected_pages: [6]
+    expected_evidence:
+      - "主要会计数据"
+      - "营业收入 2,057,608,183.78"
+    expected_answer: "2024年营业收入为2,057,608,183.78元。"
+    tags: [numeric, table, company_year]
+
+  - id: real_shenlian_2025_h1_operating_cash
+    category: numeric_table
+    kb_id: cninfo_report
+    question: "申联生物2025年上半年经营活动现金净流量是多少？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keyword: "-39,389,053.48"
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo/申联生物-申联生物医药（上海）股份有限公司2025年半年度报告.pdf
+    expected_pages: [7]
+    expected_evidence:
+      - "经营活动产生的现金流量净额 -39,389,053.48"
+    expected_answer: "2025年上半年经营活动产生的现金流量净额为-39,389,053.48元。"
+    tags: [numeric, synonym, cash_flow, company_year]

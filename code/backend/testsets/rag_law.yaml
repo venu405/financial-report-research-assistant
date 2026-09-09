@@ -1,0 +1,19 @@
+﻿# 已灌入 flk_law 的法规知识库回归集
+kb_id: flk_law
+tests:
+  - question: "政府采购法规定的政府采购方式有哪些？"
+    expect_answerable: true
+    expect_keyword: "公开招标"
+    expect_min_citations: 1
+    expect_top_score_min: 0.60
+  - question: "政府采购当事人包括哪些主体？"
+    expect_answerable: true
+    expect_keyword: "采购人"
+    expect_min_citations: 1
+    expect_top_score_min: 0.60
+  - question: "采购金额达到多少必须公开招标？"
+    expect_answerable: true
+    expect_min_citations: 1
+    expect_top_score_min: 0.60
+  - question: "今天天气怎么样？"
+    expect_intent: smalltalk

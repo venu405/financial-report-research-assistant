@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted } from "vue";
 import {
-  kbs, currentKb, userToken, onSwitchKb, logout,
+  kbs, currentKb, userToken, onSwitchKb, onCredentialChange, logout,
   threads, threadId, loadThreads, switchThread, deleteThread,
 } from "./useKbState";
 
@@ -9,10 +9,10 @@ defineProps<{ active: string }>();
 const emit = defineEmits<{ (e: "select", tab: string): void }>();
 
 const navItems = [
-  { key: "chat", label: "💬 对话", icon: "💬" },
-  { key: "docs", label: "📄 文档", icon: "📄" },
-  { key: "agent", label: "🛎 工作台", icon: "🛎" },
-  { key: "admin", label: "⚙️ 管理", icon: "⚙️" },
+  { key: "chat", label: "财报问答", icon: "◈" },
+  { key: "analysis", label: "公司分析", icon: "◌" },
+  { key: "peers", label: "同业对比", icon: "⇄" },
+  { key: "docs", label: "报告管理", icon: "▤" },
 ];
 
 onMounted(loadThreads);
@@ -20,7 +20,7 @@ onMounted(loadThreads);
 
 <template>
   <aside class="sidebar">
-    <div class="workspace">🏢 企业知识库</div>
+    <div class="workspace">◈ 上市公司财报研究</div>
 
     <nav class="nav">
       <button
@@ -35,7 +35,7 @@ onMounted(loadThreads);
     </nav>
 
     <div class="kb-picker">
-      <div class="label">知识库</div>
+      <div class="label">财报资料库</div>
       <select v-model="currentKb" @change="onSwitchKb">
         <option v-for="k in kbs" :key="k" :value="k">{{ k }}</option>
         <option v-if="!kbs.length" value="default">default</option>
@@ -44,15 +44,15 @@ onMounted(loadThreads);
         v-model="userToken"
         class="token"
         placeholder="API Token（kb_ 开头）"
-        @change="onSwitchKb"
+        @change="onCredentialChange"
       />
       <button v-if="userToken" class="logout" @click="logout">登出</button>
     </div>
 
-    <!-- 会话列表（P2-1：多会话切换/删除，需管理员身份） -->
+    <!-- 当前用户自己的会话列表 -->
     <div class="threads">
-      <div class="label">会话（{{ threads.length }}）</div>
-      <div v-if="!threads.length" class="threads-empty">暂无会话记录</div>
+      <div class="label">研究会话（{{ threads.length }}）</div>
+      <div v-if="!threads.length" class="threads-empty">暂无财报研究会话</div>
       <div
         v-for="t in threads"
         :key="t.thread_id"

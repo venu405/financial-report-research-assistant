@@ -1,0 +1,672 @@
+{
+  "reports": [
+    {
+      "base_url": "http://127.0.0.1:18082",
+      "by_category": {
+        "adjacent_context": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 0.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 0.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            }
+          },
+          "total": 1
+        },
+        "synonym_rewrite": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            }
+          },
+          "total": 1
+        }
+      },
+      "by_tags": {
+        "adjacent_context": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 0.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 0.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            }
+          },
+          "total": 1
+        },
+        "cause_effect": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 0.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 0.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            }
+          },
+          "total": 1
+        },
+        "company_year": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 0.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 0.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            }
+          },
+          "total": 1
+        },
+        "distractor": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            }
+          },
+          "total": 1
+        },
+        "numeric": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            }
+          },
+          "total": 1
+        },
+        "section": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.5,
+              "evidence_rate_denominator": 2,
+              "hit@1": 1.0,
+              "hit@1_denominator": 2,
+              "hit@3": 1.0,
+              "hit@3_denominator": 2,
+              "hit@5": 1.0,
+              "hit@5_denominator": 2,
+              "page": {
+                "denominator": 2,
+                "hit_rate": 0.5,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 2,
+              "recall@3": 1.0,
+              "recall@3_denominator": 2,
+              "recall@5": 1.0,
+              "recall@5_denominator": 2
+            },
+            "recall_raw": {
+              "evidence_rate": 0.5,
+              "evidence_rate_denominator": 2,
+              "hit@1": 1.0,
+              "hit@1_denominator": 2,
+              "hit@3": 1.0,
+              "hit@3_denominator": 2,
+              "hit@5": 1.0,
+              "hit@5_denominator": 2,
+              "page": {
+                "denominator": 2,
+                "hit_rate": 0.5,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 2,
+              "recall@3": 1.0,
+              "recall@3_denominator": 2,
+              "recall@5": 1.0,
+              "recall@5_denominator": 2
+            }
+          },
+          "total": 2
+        },
+        "synonym": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            }
+          },
+          "total": 1
+        }
+      },
+      "completed_total": 2,
+      "generated_at": "2026-09-06T02:26:22+00:00",
+      "hit_ks": [
+        1,
+        3,
+        5
+      ],
+      "kind": "rag",
+      "label": "qdrant-targeted2-after-34-fixes-20260906",
+      "passed": 2,
+      "planned_total": 2,
+      "results": [
+        {
+          "answer": "中国核建2024年营业总收入为1135.41亿元，同比增长3.80%。[1]",
+          "category": "synonym_rewrite",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keyword": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report"
+          ],
+          "citations": 1,
+          "elapsed_s": 45.9,
+          "escalate": false,
+          "faithfulness": 8,
+          "id": "real_zhongguohe_2024_total_revenue_synonym",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "中国核建2024年年报经营情况概述中的营业总收入是多少？不要回答归属于上市公司股东的净利润。",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 2,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "synonym",
+            "numeric",
+            "section",
+            "distractor"
+          ],
+          "top_score": 0.68869287
+        },
+        {
+          "answer": "ST葫芦娃2025年上半年营业收入同比下降42.89%，主要原因是呼吸系统用药销售额较上年同期减少。[1] 此外，报告也提及市场需求波动与行业竞争加剧等综合因素影响。[2]",
+          "category": "adjacent_context",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keywords_all": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 2,
+          "elapsed_s": 13.77,
+          "escalate": false,
+          "faithfulness": 7,
+          "id": "real_huluwa_2025_h1_revenue_reason",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "海南葫芦娃2025年上半年营业收入同比下降42.89%的主要原因是什么？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": false,
+              "page_no_metadata": false,
+              "page_recall": 0.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 1,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": false,
+              "page_no_metadata": false,
+              "page_recall": 0.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "adjacent_context",
+            "section",
+            "cause_effect",
+            "company_year"
+          ],
+          "top_score": 0.0
+        }
+      ],
+      "run_status": "completed",
+      "schema_version": 2,
+      "selected_case_ids": [
+        "real_huluwa_2025_h1_revenue_reason",
+        "real_zhongguohe_2024_total_revenue_synonym"
+      ],
+      "summary": {
+        "answerable": {
+          "accuracy": 1.0,
+          "denominator": 2
+        },
+        "avg_citations": 1.5,
+        "error_count": 0,
+        "escalate_rate": 0.0,
+        "latency": {
+          "avg_s": 29.835,
+          "count": 2,
+          "max_s": 45.9,
+          "p50_s": 13.77,
+          "p95_s": 45.9
+        },
+        "pass_rate": 1.0,
+        "passed": 2,
+        "retrieval": {
+          "contexts": {
+            "evidence_rate": 0.5,
+            "evidence_rate_denominator": 2,
+            "hit@1": 1.0,
+            "hit@1_denominator": 2,
+            "hit@3": 1.0,
+            "hit@3_denominator": 2,
+            "hit@5": 1.0,
+            "hit@5_denominator": 2,
+            "page": {
+              "denominator": 2,
+              "hit_rate": 0.5,
+              "not_scoreable_no_metadata": 0
+            },
+            "recall@1": 1.0,
+            "recall@1_denominator": 2,
+            "recall@3": 1.0,
+            "recall@3_denominator": 2,
+            "recall@5": 1.0,
+            "recall@5_denominator": 2
+          },
+          "recall_raw": {
+            "evidence_rate": 0.5,
+            "evidence_rate_denominator": 2,
+            "hit@1": 1.0,
+            "hit@1_denominator": 2,
+            "hit@3": 1.0,
+            "hit@3_denominator": 2,
+            "hit@5": 1.0,
+            "hit@5_denominator": 2,
+            "page": {
+              "denominator": 2,
+              "hit_rate": 0.5,
+              "not_scoreable_no_metadata": 0
+            },
+            "recall@1": 1.0,
+            "recall@1_denominator": 2,
+            "recall@3": 1.0,
+            "recall@3_denominator": 2,
+            "recall@5": 1.0,
+            "recall@5_denominator": 2
+          }
+        },
+        "small_sample": true,
+        "total": 2
+      },
+      "testset": "testsets\\rag_real_quality_v2.yaml",
+      "total": 2
+    }
+  ]
+}

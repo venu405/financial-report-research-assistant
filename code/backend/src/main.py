@@ -1,35 +1,51 @@
-"""FastAPI entrypoint exposing the DeepResearchAgent via HTTP."""
+"""企业知识库与智能客服 FastAPI 入口。"""
 
 from __future__ import annotations
 
+import datetime as dt
+import hashlib
 import hmac
 import json
 import logging
 import os
+import re
 import sys
 import time
 import uuid
 from collections import deque
+from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from pathlib import Path
-from threading import Lock
+from threading import Event, Lock, Thread
 from typing import Any, Dict, Iterator, Literal, Optional
 
 from dotenv import load_dotenv
 
 # 加载 .env 文件（在导入 config 之前，确保环境变量就绪）
 _ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
-load_dotenv(_ENV_PATH, override=True)
+# 显式进程环境（容器、测试实例、运维注入）优先；.env 只补缺省值。
+# 否则多个隔离实例会被 .env 强行指向同一 Chroma 目录，破坏数据隔离。
+load_dotenv(_ENV_PATH, override=False)
 
-from fastapi import Body, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile  # noqa: E402
+from fastapi import (  # noqa: E402
+    Body,
+    FastAPI,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Security,
+    UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
-from fastapi.responses import Response, StreamingResponse  # noqa: E402
+from fastapi.responses import FileResponse, Response, StreamingResponse  # noqa: E402
+from fastapi.security import APIKeyHeader, HTTPBearer  # noqa: E402
 from loguru import logger  # noqa: E402
-from pydantic import BaseModel, Field  # noqa: E402
+from pydantic import BaseModel, Field, field_validator  # noqa: E402
 
-from config import Configuration, SearchAPI  # noqa: E402
-from services.token_budget import TokenBudget, TokenBudgetExceeded, global_stats  # noqa: E402
-# DeepResearchAgent 已改为路由内懒加载：KB 功能独立运行，不依赖 hello_agents
+from config import Configuration  # noqa: E402
 
 # ---- 统一日志：loguru 作为唯一后端，桥接标准 logging ----
 # services/* 和 services/kb/* 用的是 logging.getLogger，若不桥接，它们的日志
@@ -94,11 +110,18 @@ if os.getenv("KB_LOG_JSON", "").strip() in ("1", "true", "yes"):
 
 # 请求级上下文：request_id（中间件注入），每条日志自动带上，跨模块串联一次请求
 _request_id_ctx: ContextVar[str] = ContextVar("request_id", default="-")
+_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+_V1_BEARER_SECURITY = HTTPBearer(auto_error=False)
+_V1_API_TOKEN_SECURITY = APIKeyHeader(name="X-Api-Token", auto_error=False)
+_V1_SECURITY_RESPONSES = {
+    401: {"description": "缺少或无效的 API token"},
+    403: {"description": "无权访问指定知识库"},
+}
 logger = logger.patch(lambda record: record["extra"].setdefault("request_id", _request_id_ctx.get()))
 
 
 class _SlidingWindowLimiter:
-    """进程内滑动窗口限流器。用于保护深度研究等重资源/付费接口。"""
+    """进程内滑动窗口限流器，用于保护问答等付费接口。"""
 
     def __init__(self, max_requests: int, window_seconds: float):
         self._max = max_requests
@@ -118,45 +141,6 @@ class _SlidingWindowLimiter:
             return True
 
 
-class ResearchRequest(BaseModel):
-    """Payload for triggering a research run."""
-
-    topic: str = Field(..., description="Research topic supplied by the user")
-    search_api: SearchAPI | None = Field(
-        default=None,
-        description="Override the default search backend configured via env",
-    )
-    research_depth: int | None = Field(
-        default=None,
-        ge=1,
-        le=3,
-        description="P1: research depth (1=fast, 2=standard, 3=deep) overriding MAX_WEB_RESEARCH_LOOPS",
-    )
-
-
-class ResearchResponse(BaseModel):
-    """HTTP response containing the generated report and structured tasks."""
-
-    report_markdown: str = Field(
-        ..., description="Markdown-formatted research report including sections"
-    )
-    todo_items: list[dict[str, Any]] = Field(
-        default_factory=list,
-        description="Structured TODO items with summaries and sources",
-    )
-
-
-class RegenerateRequest(BaseModel):
-    """Payload for re-running a single task (D4 改造③)."""
-
-    topic: str = Field(..., description="Research topic")
-    task_id: int = Field(..., description="Which task to re-run")
-    tasks: list[dict[str, Any]] = Field(
-        default_factory=list,
-        description="Current state of all tasks (rebuilt server-side)",
-    )
-
-
 class KbAskRequest(BaseModel):
     """Payload for knowledge base Q&A (LangGraph orchestrated)."""
 
@@ -165,6 +149,250 @@ class KbAskRequest(BaseModel):
     kb_id: str = "default"
     thread_id: str | None = None  # P4：对话线程 ID（同 ID 持久化对话状态）
     user_id: str | None = None  # P3 §3.4：用户 ID（传则校验对该 kb 的访问权）
+    visitor_token: str | None = None  # 匿名访客的高熵会话凭据（kbv_ 前缀）
+    metadata_filters: dict[str, Any] | None = None  # 可选年份/文档类型等检索过滤
+
+
+class FinancialMetricCreateRequest(BaseModel):
+    kb_id: str = Field(min_length=1)
+    company_name: str = Field(min_length=1)
+    company_code: str = ""
+    report_period: str = Field(min_length=1)
+    period_type: str
+    metric_code: str
+    metric_name: str = ""
+    raw_value: str | None = None
+    raw_unit: str = ""
+    normalized_value: str | None = None
+    normalized_unit: str = "元"
+    statement_scope: str = "unknown"
+    source_doc_id: str = ""
+    source_title: str = ""
+    source_page: int | None = None
+    source_page_end: int | None = None
+    source_chunk_id: str = ""
+    source_text: str = ""
+    extraction_status: str = "verified"
+    created_by: str | None = None
+    user_id: str | None = None
+
+
+class FinancialMetricPatchRequest(BaseModel):
+    raw_value: str | None = None
+    raw_unit: str | None = None
+    statement_scope: str | None = None
+    source_doc_id: str | None = None
+    source_title: str | None = None
+    source_page: int | None = None
+    source_page_end: int | None = None
+    source_chunk_id: str | None = None
+    source_text: str | None = None
+    extraction_status: str | None = None
+    reason: str = Field(min_length=1)
+    user_id: str | None = None
+
+
+class ConversationMessageRequest(BaseModel):
+    """访客在人工会话中发送消息。"""
+
+    content: str = Field(min_length=1, max_length=4000)
+    visitor_token: str | None = None
+
+
+class V1QueryRequest(BaseModel):
+    """企业系统接入层的问答请求（字段名与内部 kb 路由解耦）。"""
+
+    knowledge_base_id: str = Field(min_length=1, max_length=64)
+    question: str = Field(min_length=1, max_length=8000)
+    history: list[dict[str, str]] = Field(default_factory=list, max_length=20)
+    thread_id: str | None = Field(default=None, max_length=128)
+    metadata_filters: dict[str, Any] | None = None
+    user_id: str | None = Field(default=None, max_length=128)
+
+    @field_validator("history")
+    @classmethod
+    def _validate_history(cls, value: list[dict[str, str]]) -> list[dict[str, str]]:
+        for item in value:
+            if set(item) - {"role", "content"}:
+                raise ValueError("history 仅允许 role 和 content 字段")
+            if item.get("role") not in {"user", "assistant", "system"}:
+                raise ValueError("history.role 不合法")
+            if not item.get("content", "").strip() or len(item["content"]) > 4000:
+                raise ValueError("history.content 长度必须为 1-4000")
+        return value
+
+    @field_validator("knowledge_base_id", "question")
+    @classmethod
+    def _require_non_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("字段不能为空")
+        return value
+
+    @field_validator("metadata_filters")
+    @classmethod
+    def _validate_metadata_filters(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if value is None:
+            return None
+        allowed = {
+            "source_type", "page_start", "page_end", "year", "report_period",
+            "doc_id", "doc_title", "document_type", "company_name", "chunk_type",
+        }
+        if set(value) - allowed:
+            raise ValueError("metadata_filters 包含不允许的字段")
+        try:
+            encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("metadata_filters 必须是 JSON 数据") from exc
+        if len(encoded.encode("utf-8")) > 4096:
+            raise ValueError("metadata_filters 不能超过 4096 字节")
+        return value
+
+
+class V1CompanyAnalysisRequest(BaseModel):
+    knowledge_base_id: str = Field(min_length=1, max_length=64)
+    company_name: str = Field(min_length=1, max_length=256)
+    report_period: str = Field(min_length=1, max_length=64)
+    comparison_period: str | None = Field(default=None, max_length=64)
+    user_id: str | None = Field(default=None, max_length=128)
+
+    @field_validator("knowledge_base_id", "company_name", "report_period")
+    @classmethod
+    def _require_non_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("字段不能为空")
+        return value
+
+
+class V1PeerComparisonRequest(BaseModel):
+    knowledge_base_id: str = Field(min_length=1, max_length=64)
+    company_names: list[str] = Field(min_length=2, max_length=3)
+    report_period: str = Field(min_length=1, max_length=64)
+    metric_codes: list[str] | None = Field(default=None, max_length=20)
+    user_id: str | None = Field(default=None, max_length=128)
+
+    @field_validator("company_names")
+    @classmethod
+    def _validate_companies(cls, value: list[str]) -> list[str]:
+        normalized = [item.strip() for item in value]
+        if any(not item or len(item) > 256 for item in normalized):
+            raise ValueError("company_names 不能包含空值且单项不超过 256 字符")
+        if len({item.casefold() for item in normalized}) != len(normalized):
+            raise ValueError("company_names 不能重复")
+        return normalized
+
+    @field_validator("metric_codes")
+    @classmethod
+    def _validate_metric_codes(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        normalized = [item.strip() for item in value]
+        if any(not item or len(item) > 64 for item in normalized):
+            raise ValueError("metric_codes 不能包含空值且单项不超过 64 字符")
+        if len({item.casefold() for item in normalized}) != len(normalized):
+            raise ValueError("metric_codes 不能重复")
+        return normalized
+
+    @field_validator("knowledge_base_id", "report_period")
+    @classmethod
+    def _require_non_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("字段不能为空")
+        return value
+
+
+class V1ReportExportRequest(BaseModel):
+    """导出统一返回 JSON，避免企业系统必须处理两种响应协议。"""
+
+    report_type: Literal["company_analysis", "peer_comparison"]
+    knowledge_base_id: str = Field(min_length=1, max_length=64)
+    company_name: str | None = Field(default=None, max_length=256)
+    report_period: str = Field(min_length=1, max_length=64)
+    comparison_period: str | None = Field(default=None, max_length=64)
+    company_names: list[str] | None = Field(default=None, min_length=2, max_length=3)
+    metric_codes: list[str] | None = Field(default=None, max_length=20)
+    user_id: str | None = Field(default=None, max_length=128)
+
+    @field_validator("company_names")
+    @classmethod
+    def _validate_export_companies(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        normalized = [item.strip() for item in value]
+        if any(not item or len(item) > 256 for item in normalized):
+            raise ValueError("company_names 不能包含空值且单项不超过 256 字符")
+        if len({item.casefold() for item in normalized}) != len(normalized):
+            raise ValueError("company_names 不能重复")
+        return normalized
+
+    @field_validator("metric_codes")
+    @classmethod
+    def _validate_export_metric_codes(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        normalized = [item.strip() for item in value]
+        if any(not item or len(item) > 64 for item in normalized):
+            raise ValueError("metric_codes 不能包含空值且单项不超过 64 字符")
+        if len({item.casefold() for item in normalized}) != len(normalized):
+            raise ValueError("metric_codes 不能重复")
+        return normalized
+
+    @field_validator("knowledge_base_id", "report_period")
+    @classmethod
+    def _require_non_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("字段不能为空")
+        return value
+
+
+class V1QueryResponse(BaseModel):
+    answer: str | None = None
+    citations: list[Any] = Field(default_factory=list)
+    needs_clarification: bool = False
+    request_id: str
+    knowledge_base_id: str
+    model_config = {"extra": "allow"}
+
+
+class V1MetricsResponse(BaseModel):
+    items: list[dict[str, Any]] = Field(default_factory=list)
+    total: int
+    limit: int
+    offset: int
+    request_id: str
+    knowledge_base_id: str
+    model_config = {"extra": "allow"}
+
+
+class V1CompanyAnalysisResponse(BaseModel):
+    company: dict[str, Any] = Field(default_factory=dict)
+    report_period: str | None = None
+    request_id: str
+    knowledge_base_id: str
+    model_config = {"extra": "allow"}
+
+
+class V1PeerComparisonResponse(BaseModel):
+    companies: list[dict[str, Any]] = Field(default_factory=list)
+    report_period: str | None = None
+    request_id: str
+    knowledge_base_id: str
+    model_config = {"extra": "allow"}
+
+
+class V1ExportResponse(BaseModel):
+    report_type: str
+    filename: str
+    content_type: str
+    content: str
+    request_id: str
+    knowledge_base_id: str
+    model_config = {"extra": "allow"}
+
+
+class V1EventStreamResponse(StreamingResponse):
+    """带明确媒体类型的 SSE 响应类，使 OpenAPI 与运行时契约一致。"""
+
+    media_type = "text/event-stream"
 
 
 def _mask_secret(value: Optional[str], visible: int = 4) -> str:
@@ -178,6 +406,20 @@ def _mask_secret(value: Optional[str], visible: int = 4) -> str:
     return f"{value[:visible]}...{value[-visible:]}"
 
 
+def _safe_upload_filename(filename: str | None) -> str:
+    """取上传文件的安全基名，避免把客户端路径带入标题或归档路径。"""
+    raw = str(filename or "").strip().replace("\\", "/")
+    name = Path(raw).name
+    return name if name not in {"", ".", ".."} else "document.bin"
+
+
+def _upload_title_from_filename(filename: str | None) -> str:
+    """缺省标题使用原始文件名（去扩展名），绝不使用临时上传路径名。"""
+    safe_name = _safe_upload_filename(filename)
+    stem = Path(safe_name).stem.strip()
+    return stem or safe_name
+
+
 def _key_matches(provided: Optional[str], expected: str) -> bool:
     """恒定时间字符串比较（防时序攻击），与明文 != 相比不泄露逐字符差异。"""
     if not provided or not expected:
@@ -185,28 +427,103 @@ def _key_matches(provided: Optional[str], expected: str) -> bool:
     return hmac.compare_digest(provided, expected)
 
 
-def _build_config(payload: ResearchRequest) -> Configuration:
-    overrides: Dict[str, Any] = {}
+def _validate_production_security(config: Configuration) -> None:
+    """生产模式缺少必要鉴权时拒绝启动。"""
+    if config.app_env.strip().lower() not in {"production", "prod"}:
+        return
+    problems: list[str] = []
+    if not config.admin_api_key or config.admin_api_key.startswith("replace-with-"):
+        problems.append("ADMIN_API_KEY 必须设置为真实随机密钥")
+    require_token = os.getenv("KB_REQUIRE_TOKEN", "").strip().lower()
+    if require_token not in {"1", "true", "yes"}:
+        problems.append("KB_REQUIRE_TOKEN 必须设为 1")
+    backup_key = os.getenv("KB_BACKUP_SIGNING_KEY", "")
+    if len(backup_key) < 32:
+        problems.append("KB_BACKUP_SIGNING_KEY 必须设置至少 32 位随机密钥")
+    require_backup_signature = os.getenv("KB_REQUIRE_BACKUP_SIGNATURE", "").lower()
+    if require_backup_signature not in {"1", "true", "yes"}:
+        problems.append("KB_REQUIRE_BACKUP_SIGNATURE 必须设为 1")
+    if problems:
+        raise RuntimeError("生产安全配置不完整：" + "；".join(problems))
 
-    if payload.search_api is not None:
-        overrides["search_api"] = payload.search_api
 
-    # P1: 前端"研究深度"覆盖轮数上限（1=快速 / 2=标准 / 3=深度）
-    if payload.research_depth is not None:
-        overrides["max_web_research_loops"] = payload.research_depth
+def _build_kb_vector_store(config: Configuration) -> Any:
+    """按配置构造知识库向量后端，默认路径保持 Chroma 兼容行为。"""
+    backend = getattr(config, "kb_vector_backend", "chroma")
+    if backend == "qdrant":
+        from services.kb.qdrant_vector_store import QdrantVectorStore
 
-    return Configuration.from_env(overrides=overrides)
+        collection_name = getattr(config, "kb_qdrant_collection", "enterprise_kb")
+        create_if_missing = bool(
+            getattr(config, "kb_qdrant_create_if_missing", False)
+        )
+        if str(getattr(config, "app_env", "development")).strip().lower() in {
+            "test",
+            "testing",
+        }:
+            create_if_missing = False
+        logger.info(
+            "KB vector backend={} collection={} create_if_missing={}",
+            backend,
+            collection_name,
+            create_if_missing,
+        )
+        return QdrantVectorStore(
+            url=getattr(config, "kb_qdrant_url", "http://127.0.0.1:6333"),
+            collection_name=collection_name,
+            vector_size=getattr(config, "kb_qdrant_vector_size", 1024),
+            api_key=getattr(config, "kb_qdrant_api_key", None),
+            timeout=getattr(config, "kb_qdrant_timeout", 10),
+            create_if_missing=create_if_missing,
+        )
+    if backend != "chroma":
+        raise ValueError(f"不支持的 KB_VECTOR_BACKEND: {backend}")
+
+    from services.kb.vector_store import VectorStore
+
+    store = VectorStore(
+        persist_dir=config.kb_chroma_dir,
+        collection_name=config.kb_collection,
+        embedding_model=config.kb_embedding_model,
+    )
+    # P3：历史数据迁移——给无 kb_id 的 chunk 补默认值（幂等，仅首次执行实际写入）
+    store.migrate_default_kb_id()
+    logger.info(
+        "KB vector backend={} collection={}", backend, config.kb_collection
+    )
+    return store
+
+
+def _check_kb_vector_store_ready(store: Any) -> None:
+    """Use a backend health check when available; retain the legacy fallback."""
+    check = getattr(store, "healthcheck", None)
+    if not callable(check):
+        check = getattr(store, "ping", None)
+    if callable(check):
+        if check() is False:
+            raise RuntimeError("vector store healthcheck returned false")
+        return
+    store.list_kbs()
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="HelloAgents Deep Researcher")
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        log_startup_configuration()
+        start_maintenance_worker()
+        try:
+            yield
+        finally:
+            stop_maintenance_worker()
+
+    app = FastAPI(title="企业知识库与智能客服", lifespan=lifespan)
 
     # CORS：从配置读允许的来源（生产禁用 *；* + credentials 浏览器会拒）
     _cfg = Configuration.from_env()
     _cors_origins = [o.strip() for o in _cfg.cors_origins.split(",") if o.strip()]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=_cors_origins,
+        allow_origins=_cors_origins, allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(?::\d+)?$",
         # 有明确来源才允许 credentials，避免「* + credentials」非法组合
         allow_credentials=bool(_cors_origins),
         allow_methods=["*"],
@@ -217,15 +534,18 @@ def create_app() -> FastAPI:
     # 回写响应头。配合 loguru 的 {extra[request_id]}，一次请求的日志可跨模块串联。
     @app.middleware("http")
     async def _inject_request_id(request: Request, call_next):
-        request_id = request.headers.get("X-Request-Id") or uuid.uuid4().hex
-        _request_id_ctx.set(request_id)
-        response = await call_next(request)
-        response.headers["X-Request-Id"] = request_id
-        return response
+        candidate = request.headers.get("X-Request-Id", "")
+        request_id = candidate if _REQUEST_ID_RE.fullmatch(candidate) else uuid.uuid4().hex
+        request.state.request_id = request_id
+        context_token = _request_id_ctx.set(request_id)
+        try:
+            response = await call_next(request)
+            response.headers["X-Request-Id"] = request_id
+            return response
+        finally:
+            _request_id_ctx.reset(context_token)
 
-    # ---- 深度研究接口鉴权 + 限流（防烧付费 API）----
     _admin_key = _cfg.admin_api_key
-    _research_limiter = _SlidingWindowLimiter(max_requests=10, window_seconds=60)
 
     # P0：KB 问答限流——/kb/ask 每次都是 LLM 付费调用，不能裸奔。
     # 按身份（user_id 或 anonymous）分桶限流，防单用户刷爆费用。
@@ -235,14 +555,6 @@ def create_app() -> FastAPI:
         window_seconds=60,
     )
 
-    def _check_research_access(request: Request) -> None:
-        """深度研究接口的统一鉴权入口：可选 API key + 全局限流。"""
-        if _admin_key and not _key_matches(request.headers.get("X-API-Key"), _admin_key):
-            raise HTTPException(status_code=401, detail="无效的 API Key")
-        if not _research_limiter.allow("research"):
-            raise HTTPException(status_code=429, detail="请求过于频繁，请稍后再试")
-
-    @app.on_event("startup")
     def log_startup_configuration() -> None:
         # uvicorn 启动时已用它的 LOGGING_CONFIG 重设过 root logger（加了 default handler），
         # 这里接管 root：只保留 loguru 桥接，移除 uvicorn 默认 handler，避免业务日志重复打印两遍。
@@ -252,25 +564,15 @@ def create_app() -> FastAPI:
         _root.setLevel(logging.INFO)
 
         config = Configuration.from_env()
-
-        if config.llm_provider == "ollama":
-            base_url = config.sanitized_ollama_url()
-        elif config.llm_provider == "lmstudio":
-            base_url = config.lmstudio_base_url
-        else:
-            base_url = config.llm_base_url or "unset"
+        _validate_production_security(config)
 
         logger.info(
-            "DeepResearch configuration loaded: provider=%s model=%s base_url=%s search_api=%s "
-            "max_loops=%s fetch_full_page=%s tool_calling=%s strip_thinking=%s api_key=%s",
-            config.llm_provider,
-            config.resolved_model() or "unset",
-            base_url,
-            (config.search_api.value if isinstance(config.search_api, SearchAPI) else config.search_api),
-            config.max_web_research_loops,
-            config.fetch_full_page,
-            config.use_tool_calling,
-            config.strip_thinking_tokens,
+            "Knowledge base configuration loaded: model=%s llm_base_url=%s "
+            "embedding_model=%s embedding_host=%s api_key=%s",
+            config.llm_model_id or "deepseek-chat",
+            config.llm_base_url or "unset",
+            config.kb_embedding_model,
+            config.kb_ollama_host,
             _mask_secret(config.llm_api_key),
         )
 
@@ -297,7 +599,7 @@ def create_app() -> FastAPI:
 
     @app.get("/readyz")
     def ready_check() -> Dict[str, Any]:
-        """就绪探针：探活下游依赖（SQLite 用户库 / Chroma / Ollama embedding）。
+        """就绪探针：探活下游依赖（SQLite 用户库 / vector store / Ollama embedding）。
 
         任一依赖不可用返回 503，供 K8s/Docker 就绪判定。轻量级 healthz 保持纯 liveness。
         """
@@ -309,10 +611,10 @@ def create_app() -> FastAPI:
         except Exception as exc:
             checks["sqlite_users"] = f"error: {exc}"
         try:
-            kb["store"].list_kbs()
-            checks["chroma"] = "ok"
+            _check_kb_vector_store_ready(kb["store"])
+            checks["vector_store"] = "ok"
         except Exception as exc:
-            checks["chroma"] = f"error: {exc}"
+            checks["vector_store"] = f"error: {exc}"
         # P0：embedding 后端探活——embedding 挂了 ask 会 500，必须提前探出
         try:
             if kb["embeddings"].ping():
@@ -327,19 +629,6 @@ def create_app() -> FastAPI:
             # P1-3 复核修复：就绪探针语义——依赖不可用必须 503，供编排器摘流
             raise HTTPException(status_code=503, detail=f"依赖不可用: {checks}")
         return {"status": "ok", "checks": checks}
-
-    @app.get("/admin/diag")
-    def admin_diag(request: Request) -> Dict[str, Any]:
-        """运行时诊断——暴露研究调用的累计统计（token 消耗、调用次数、超限次数）。
-
-        鉴权：若配置了 ADMIN_API_KEY 则要求 X-API-Key 头匹配（与 /research 相同）。
-        """
-        if _admin_key and not _key_matches(request.headers.get("X-API-Key"), _admin_key):
-            raise HTTPException(status_code=401, detail="无效的 API Key")
-        stats = global_stats.snapshot()
-        stats["token_budget_limit"] = _cfg.research_token_budget
-        stats["rate_limiter"] = f"{_research_limiter._window}s / {_research_limiter._max} req"
-        return stats
 
     @app.get("/admin/audit")
     def admin_audit(
@@ -389,119 +678,13 @@ def create_app() -> FastAPI:
             media_type="text/plain; version=0.0.4; charset=utf-8",
         )
 
-    @app.post("/research", response_model=ResearchResponse)
-    def run_research(payload: ResearchRequest, request: Request) -> ResearchResponse:
-        _check_research_access(request)
-        try:
-            from agent import DeepResearchAgent  # 懒加载：研究功能需 hello_agents
-            config = _build_config(payload)
-            budget = TokenBudget(limit=config.research_token_budget)
-            global_stats.record_run_start(payload.topic)
-            agent = DeepResearchAgent(config=config, token_budget=budget, stats=global_stats)
-            result = agent.run(payload.topic)
-        except TokenBudgetExceeded as exc:
-            global_stats.record_budget_exceeded()
-            raise HTTPException(
-                status_code=429,
-                detail=f"研究因 token 预算超限被终止（{exc.used}/{exc.limit} tokens）。请缩小研究范围或提高 KB_RESEARCH_TOKEN_BUDGET",
-            ) from exc
-        except ValueError as exc:  # Likely due to unsupported configuration
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except Exception as exc:  # pragma: no cover - defensive guardrail
-            raise HTTPException(status_code=500, detail="Research failed") from exc
-
-        todo_payload = [
-            {
-                "id": item.id,
-                "title": item.title,
-                "intent": item.intent,
-                "query": item.query,
-                "status": item.status,
-                "summary": item.summary,
-                "sources_summary": item.sources_summary,
-                "note_id": item.note_id,
-                "note_path": item.note_path,
-            }
-            for item in result.todo_items
-        ]
-
-        return ResearchResponse(
-            report_markdown=(result.report_markdown or result.running_summary or ""),
-            todo_items=todo_payload,
-        )
-
-    @app.post("/research/stream")
-    def stream_research(payload: ResearchRequest, request: Request) -> StreamingResponse:
-        _check_research_access(request)
-        try:
-            from agent import DeepResearchAgent  # 懒加载
-            config = _build_config(payload)
-            budget = TokenBudget(limit=config.research_token_budget)
-            global_stats.record_run_start(payload.topic)
-            agent = DeepResearchAgent(config=config, token_budget=budget, stats=global_stats)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-        def event_iterator() -> Iterator[str]:
-            try:
-                for event in agent.run_stream(payload.topic):
-                    if event.get("type") == "budget_exceeded":
-                        global_stats.record_budget_exceeded()
-                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-            except Exception as exc:  # pragma: no cover - defensive guardrail
-                logger.exception("Streaming research failed")
-                error_payload = {"type": "error", "detail": str(exc)}
-                yield f"data: {json.dumps(error_payload, ensure_ascii=False)}\n\n"
-
-        return StreamingResponse(
-            event_iterator(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-            },
-        )
-
-    @app.post("/research/regenerate")
-    def regenerate_task(payload: RegenerateRequest, request: Request) -> StreamingResponse:
-        """=D4 改造③= 只重新执行单个任务，然后基于所有任务重新生成报告。"""
-        _check_research_access(request)
-        try:
-            from agent import DeepResearchAgent  # 懒加载
-            config = Configuration.from_env()
-            budget = TokenBudget(limit=config.research_token_budget)
-            global_stats.record_run_start(payload.topic)
-            agent = DeepResearchAgent(config=config, token_budget=budget, stats=global_stats)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-        def event_iterator() -> Iterator[str]:
-            try:
-                for event in agent.regenerate_task(
-                    topic=payload.topic,
-                    task_id=payload.task_id,
-                    tasks_payload=payload.tasks,
-                ):
-                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-            except Exception as exc:  # pragma: no cover - defensive guardrail
-                logger.exception("Regenerate failed")
-                error_payload = {"type": "error", "detail": str(exc)}
-                yield f"data: {json.dumps(error_payload, ensure_ascii=False)}\n\n"
-
-        return StreamingResponse(
-            event_iterator(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-            },
-        )
-
     # ==================== 知识库管理（KB）接口 ====================
 
-    # KB 组件按需初始化（首次使用 KB 接口时创建，避免污染研究功能启动）
+    # KB 组件按需初始化（首次使用 KB 接口时创建）
     _kb = {}
     _kb_init_lock = Lock()
+    _maintenance_stop = Event()
+    _maintenance_thread: Thread | None = None
 
     def _get_kb():
         """懒加载 KB 组件：EmbeddingClient + VectorStore + LangGraph 图。
@@ -514,10 +697,10 @@ def create_app() -> FastAPI:
         with _kb_init_lock:
             if "ready" in _kb:  # 双重检查：等锁期间可能已被前一个线程初始化完
                 return _kb
-            from services.kb.embeddings import EmbeddingClient
-            from services.kb.vector_store import VectorStore
-            from services.kb import qa_graph
             from openai import OpenAI
+
+            from services.kb import qa_graph
+            from services.kb.embeddings import EmbeddingClient
 
             cfg = Configuration.from_env()
 
@@ -533,13 +716,7 @@ def create_app() -> FastAPI:
                 model=cfg.kb_embedding_model,
             )
 
-            store = VectorStore(
-                persist_dir=cfg.kb_chroma_dir,
-                collection_name=cfg.kb_collection,
-                embedding_model=cfg.kb_embedding_model,
-            )
-            # P3：历史数据迁移——给无 kb_id 的 chunk 补默认值（幂等，仅首次执行实际写入）
-            store.migrate_default_kb_id()
+            store = _build_kb_vector_store(cfg)
 
             # LLM（复用现有配置：DeepSeek）
             # P0：设默认超时——LLM/网络 hang 时不拖死请求（qa_graph 内单次调用也带 timeout）
@@ -550,9 +727,11 @@ def create_app() -> FastAPI:
             )
             # model 显式传给 build_qa_graph（P1：去掉 _model 私有属性 hack）
 
-            from langgraph.checkpoint.sqlite import SqliteSaver
-            from services.kb.auth import AuthStore
             import sqlite3
+
+            from langgraph.checkpoint.sqlite import SqliteSaver
+
+            from services.kb.auth import AuthStore
 
             # P4：SQLite checkpointer——对话状态按 thread_id 持久化（断点续跑）
             # 注意：新版 from_conn_string 返回 context manager（需 with），应用生命周期内
@@ -598,12 +777,29 @@ def create_app() -> FastAPI:
             kb_meta_path = Path(cfg.kb_chroma_dir).parent / "kb_meta.db"
             kb_meta_store = KbMetaStore(kb_meta_path)
 
+            # 文档治理、长期记忆/隐私、数据源同步和运行告警
+            from services.kb.alert_store import AlertStore
+            from services.kb.financial_metric_store import FinancialMetricStore
+            from services.kb.governance_store import GovernanceStore
+            from services.kb.privacy import PrivacyStore
+            from services.kb.source_store import SourceStore
+
+            data_dir = Path(cfg.kb_chroma_dir).parent
+            governance_store = GovernanceStore(data_dir / "kb_governance.db")
+            privacy_store = PrivacyStore(data_dir / "kb_privacy.db")
+            source_store = SourceStore(data_dir / "kb_sources.db")
+            alert_store = AlertStore(data_dir / "kb_alerts.db")
+            financial_metric_store = FinancialMetricStore(data_dir / "kb_financial_metrics.db")
+
             # 客服改造第1项：Rerank 重排器（llm / crossencoder / off 三模式）
             from services.kb.reranker import build_reranker
             reranker = build_reranker(
-                os.getenv("KB_RERANK_MODE", "llm"),
+                getattr(cfg, "kb_rerank_mode", "llm"),
                 llm=llm,
                 model=cfg.llm_model_id or "deepseek-chat",
+                crossencoder_model=getattr(
+                    cfg, "kb_rerank_model", "BAAI/bge-reranker-base"
+                ),
             )
 
             graph = qa_graph.build_qa_graph(
@@ -613,11 +809,20 @@ def create_app() -> FastAPI:
                 top_k=cfg.kb_top_k,
                 checkpointer=saver,
                 model=cfg.llm_model_id or "deepseek-chat",
-                min_score=float(os.getenv("KB_MIN_SIMILARITY", "0") or 0),
+                reasoning_effort=cfg.llm_reasoning_effort,
+                min_score=getattr(cfg, "kb_min_similarity", 0.0),
                 faq_store=faq_store,
                 faq_threshold=float(os.getenv("KB_FAQ_THRESHOLD", "0.8") or 0.8),
                 reranker=reranker,
                 persona_store=persona_store,
+                recall_k=getattr(cfg, "kb_recall_k", max(cfg.kb_top_k * 4, cfg.kb_top_k)),
+                max_candidates_per_doc=getattr(cfg, "kb_max_hits_per_doc", 3),
+                metadata_filters=(
+                    {"chunk_type": "child"}
+                    if getattr(cfg, "kb_parent_child_enabled", False)
+                    else None
+                ),
+                neighbor_expansion=getattr(cfg, "kb_neighbor_expansion", 0),
             )
 
             # P3 §3.4 / v3 §6.1：RBAC——用户与知识库访问权限（SQLite）
@@ -661,6 +866,11 @@ def create_app() -> FastAPI:
                     "ticket_store": ticket_store,
                     "quick_reply_store": quick_reply_store,
                     "kb_meta_store": kb_meta_store,
+                    "governance_store": governance_store,
+                    "privacy_store": privacy_store,
+                    "source_store": source_store,
+                    "alert_store": alert_store,
+                    "financial_metric_store": financial_metric_store,
                     "checkpoint_conn": _ckpt_conn,  # P2：会话管理接口用（列/删 thread）
                 }
             )
@@ -688,6 +898,8 @@ def create_app() -> FastAPI:
         if not user_id:
             if required:
                 raise HTTPException(status_code=401, detail="此操作需提供身份（token 或 user_id）")
+            if _ENFORCE_KB_VISIBILITY and not kb["kb_meta_store"].is_public(kb_id):
+                raise HTTPException(status_code=401, detail="该知识库仅限内部用户访问")
             return
         if required:
             if not kb["auth"].can_write(user_id, kb_id):
@@ -732,12 +944,63 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=403, detail=f"用户 {user_id} 无管理员权限")
         return user_id
 
+    def _require_kb_agent(
+        kb: dict,
+        x_api_key: str | None,
+        x_api_token: str | None,
+        operator_id: str | None,
+    ) -> str:
+        """客服工作台鉴权：坐席、主管、管理员或运维密钥。"""
+        if _admin_key and _key_matches(x_api_key, _admin_key):
+            return f"api_key:{(_admin_key or '')[:4]}"
+        user_id = _resolve_user_id(kb, x_api_token, operator_id)
+        if not user_id:
+            raise HTTPException(status_code=401, detail="此操作需客服身份")
+        if not kb["auth"].is_customer_service(user_id):
+            raise HTTPException(status_code=403, detail=f"用户 {user_id} 无客服工作台权限")
+        return user_id
+
+    def _require_agent_conversation_access(
+        kb: dict, operator: str, conv_id: int
+    ) -> dict[str, Any]:
+        conv = kb["conversation_store"].get(conv_id)
+        if not conv:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        if not operator.startswith("api_key:") and not kb["auth"].can_access(
+            operator, conv["kb_id"]
+        ):
+            raise HTTPException(status_code=403, detail="无权处理该知识库的会话")
+        return conv
+
+    def _require_kb_supervisor(
+        kb: dict,
+        x_api_key: str | None,
+        x_api_token: str | None,
+        operator_id: str | None,
+    ) -> str:
+        operator = _require_kb_agent(kb, x_api_key, x_api_token, operator_id)
+        if operator.startswith("api_key:") or kb["auth"].has_role(
+            operator, {"supervisor", "admin"}
+        ):
+            return operator
+        raise HTTPException(status_code=403, detail="此操作需客服主管或管理员权限")
+
     # 🟠4：token 鉴权解析——X-Api-Token 头优先，user_id 直传回退（过渡期兼容）
     _REQUIRE_TOKEN = bool(os.getenv("KB_REQUIRE_TOKEN", "").strip() not in ("", "0", "false"))
 
     # P0-1：自助注册开关。KB_OPEN_SIGNUP=1 时允许无鉴权建号，但角色强制 member
     # （杜绝 admin 提权）。默认关闭——生产必须走 X-API-Key 或 admin token 建号。
     _OPEN_SIGNUP = bool(os.getenv("KB_OPEN_SIGNUP", "").strip() in ("1", "true", "yes"))
+
+    # 生产环境强制区分公开/内部知识库；开发环境可通过环境变量提前启用验证。
+    _ENFORCE_KB_VISIBILITY = getattr(_cfg, "app_env", "development").strip().lower() in {
+        "production",
+        "prod",
+    } or os.getenv("KB_ENFORCE_KB_VISIBILITY", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
 
     # P1-1：上传大小上限（MB）。流式写盘，超限 413 并清理临时文件。
     _MAX_UPLOAD_MB = int(os.getenv("KB_MAX_UPLOAD_MB", "50"))
@@ -767,6 +1030,125 @@ def create_app() -> FastAPI:
             return user_id
         return None
 
+    def _conversation_owner_key(
+        kb: dict,
+        user_id: str | None,
+        visitor_token: str | None,
+        *,
+        required: bool = False,
+    ) -> str:
+        """生成不可反查的会话归属键，防止只凭 thread_id/自增 id 越权读取。"""
+        if user_id and kb["auth"].get_user(user_id):
+            return f"user:{user_id}"
+        raw = (visitor_token or user_id or "").strip()
+        if raw:
+            if visitor_token and (
+                not raw.startswith("kbv_") or len(raw) < 24 or len(raw) > 160
+            ):
+                raise HTTPException(status_code=401, detail="无效的访客会话凭据")
+            digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+            return f"visitor:{digest}"
+        if required:
+            raise HTTPException(status_code=401, detail="此会话需要用户 token 或访客会话凭据")
+        return "anonymous"
+
+    def _owned_conversation(
+        kb: dict,
+        *,
+        thread_id: str | None = None,
+        conv_id: int | None = None,
+        owner_key: str,
+    ) -> dict[str, Any]:
+        conv = (
+            kb["conversation_store"].get_by_thread(thread_id)
+            if thread_id is not None
+            else kb["conversation_store"].get(conv_id or 0)
+        )
+        if not conv:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        if not hmac.compare_digest(conv.get("visitor_id", ""), owner_key):
+            raise HTTPException(status_code=403, detail="无权访问该会话")
+        return conv
+
+    def _prepare_chat_turn(
+        kb: dict, payload: KbAskRequest, user_id: str | None
+    ) -> tuple[dict[str, Any], list[dict[str, str]], str]:
+        """建立归属明确的会话、加载服务端历史并记录本轮用户消息。"""
+        owner_key = _conversation_owner_key(kb, user_id, payload.visitor_token)
+        thread_id = payload.thread_id or uuid.uuid4().hex
+        try:
+            conv = kb["conversation_store"].get_or_create(
+                thread_id,
+                kb_id=payload.kb_id,
+                visitor_id=owner_key,
+            )
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        if conv["kb_id"] != payload.kb_id:
+            raise HTTPException(status_code=409, detail="会话所属知识库与请求不一致")
+        if conv["status"] in {"waiting", "human"}:
+            raise HTTPException(status_code=409, detail="会话已转人工，请通过人工消息接口继续发送")
+        history = kb["conversation_store"].recent_model_history(conv["id"], limit=20)
+        if not history:
+            history = payload.history[-20:]
+        memories = kb["privacy_store"].list_memory(owner_key)
+        if memories:
+            memory_text = "；".join(f"{item['key']}={item['value']}" for item in memories[:20])
+            history = [
+                {"role": "user", "content": f"以下是我明确同意保存的长期信息：{memory_text}"},
+                {"role": "assistant", "content": "好的，我只在本次回答需要时参考这些信息。"},
+                *history,
+            ]
+        from services.kb.privacy import redact_text
+
+        kb["conversation_store"].add_message(
+            conv["id"], "user", redact_text(payload.question)
+        )
+        return conv, history, thread_id
+
+    def _finish_chat_turn(
+        kb: dict,
+        conv: dict[str, Any],
+        result: dict[str, Any],
+        *,
+        actor: str,
+    ) -> None:
+        """保存助手回复，并在需要时把同一个会话转入人工队列。"""
+        from services.kb.privacy import redact_text
+
+        kb["conversation_store"].add_message(
+            conv["id"], "assistant", redact_text(result.get("answer", ""))
+        )
+        if result.get("escalate"):
+            transferred = kb["conversation_store"].transfer_to_human(
+                conv["id"], "可回答性门槛两次不过"
+            )
+            if transferred:
+                kb["audit"].record(
+                    user_id=actor,
+                    action="transfer_to_human",
+                    target=str(conv["id"]),
+                )
+                agents = kb["auth"].available_agents(conv["kb_id"])
+                if agents:
+                    selected = min(
+                        agents,
+                        key=lambda item: kb["conversation_store"].active_load(
+                            item["user_id"]
+                        ),
+                    )
+                    if kb["conversation_store"].claim(conv["id"], selected["user_id"]):
+                        kb["audit"].record(
+                            user_id="system",
+                            action="auto_assign_agent",
+                            target=str(conv["id"]),
+                            detail={"agent_id": selected["user_id"]},
+                        )
+        refreshed = kb["conversation_store"].get(conv["id"]) or conv
+        result["conversation_id"] = conv["id"]
+        result["thread_id"] = conv["thread_id"]
+        result["status"] = refreshed["status"]
+
     def _prepare_chunks(
         kb: dict,
         file: UploadFile,
@@ -784,9 +1166,12 @@ def create_app() -> FastAPI:
         """
         import hashlib
         import uuid
-        from services.kb.ingest import build_chunks
 
-        suffix = Path(file.filename or "upload").suffix
+        from services.kb.ingest import build_chunks, build_legacy_chunks
+
+        safe_filename = _safe_upload_filename(file.filename)
+        resolved_title = (title or "").strip() or _upload_title_from_filename(file.filename)
+        suffix = Path(safe_filename).suffix
         tmp_path = Path(kb["config"].kb_chroma_dir).parent / f"_upload_{uuid.uuid4().hex}{suffix}"
         tmp_path.parent.mkdir(parents=True, exist_ok=True)
         # P1-1：流式写盘（1MB 分片）+ 大小上限，避免整文件读进内存 / 磁盘写满
@@ -815,17 +1200,41 @@ def create_app() -> FastAPI:
 
         cfg = kb["config"]
         try:
-            chunks = build_chunks(
-                tmp_path,
-                doc_id=doc_id,
-                chunk_size=cfg.kb_chunk_size,
-                overlap=cfg.kb_chunk_overlap,
-                kb_id=kb_id,
-                ocr_mode=ocr_mode,
-            )
+            if getattr(cfg, "kb_chunk_profile", "structured") == "legacy":
+                chunks = build_legacy_chunks(
+                    tmp_path,
+                    doc_id=doc_id,
+                    chunk_size=cfg.kb_chunk_size,
+                    overlap=cfg.kb_chunk_overlap,
+                    kb_id=kb_id,
+                    ocr_mode=ocr_mode,
+                )
+            else:
+                chunks = build_chunks(
+                    tmp_path,
+                    doc_id=doc_id,
+                    chunk_size=cfg.kb_chunk_size,
+                    overlap=cfg.kb_chunk_overlap,
+                    kb_id=kb_id,
+                    ocr_mode=ocr_mode,
+                    document_title=resolved_title,
+                    parent_chunk_size=(
+                        getattr(cfg, "kb_parent_chunk_size", 1600)
+                        if getattr(cfg, "kb_parent_child_enabled", False)
+                        else None
+                    ),
+                    child_chunk_size=(
+                        cfg.kb_chunk_size
+                        if getattr(cfg, "kb_parent_child_enabled", False)
+                        else None
+                    ),
+                )
             if not chunks:
                 raise HTTPException(status_code=400, detail="文档解析后无有效内容")
-            resolved_title = (title or "").strip() or tmp_path.stem
+            for chunk in chunks:
+                # build_chunks 使用临时路径解析；在返回前把用户可见标题写回
+                # DocumentChunk，避免临时 stem 进入后续快照/测试/兼容调用。
+                chunk.doc_title = resolved_title
             # 标题参与向量化（P0）：title 是强信号，拼进 embedding 输入；
             # 存储仍用纯正文（metadata 里已有 doc_title），检索更准且展示不重复
             embed_inputs = [f"{resolved_title}\n{c.text}" for c in chunks]
@@ -836,6 +1245,44 @@ def create_app() -> FastAPI:
                 tmp_path.unlink(missing_ok=True)  # 清理临时文件
             except Exception as cleanup_exc:  # 清理失败不阻断（残留无害）
                 logger.warning("临时文件清理失败（忽略）: {}", cleanup_exc)
+
+    def _archive_original(kb: dict, file: UploadFile, doc_id: str) -> tuple[str, str]:
+        """把原始文件保存到受控数据目录，供审计、下载和重新处理。"""
+        safe_name = _safe_upload_filename(file.filename)
+        suffix = Path(safe_name).suffix
+        archive_dir = Path(kb["config"].kb_chroma_dir).parent / "document_originals" / doc_id
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        target = archive_dir / f"{uuid.uuid4().hex}{suffix}"
+        max_bytes = _MAX_UPLOAD_MB * 1024 * 1024
+        size = 0
+        file.file.seek(0)
+        with target.open("wb") as output:
+            while True:
+                chunk = file.file.read(1024 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > max_bytes:
+                    output.close()
+                    target.unlink(missing_ok=True)
+                    raise HTTPException(status_code=413, detail=f"文件超过大小限制 {_MAX_UPLOAD_MB}MB")
+                output.write(chunk)
+        file.file.seek(0)
+        data_dir = Path(kb["config"].kb_chroma_dir).parent.resolve()
+        return safe_name, target.resolve().relative_to(data_dir).as_posix()
+
+    def _public_version(version: dict[str, Any]) -> dict[str, Any]:
+        """Remove internal snapshot and filesystem details from API responses."""
+        result = dict(version)
+        result.pop("snapshot", None)
+        result.pop("original_path", None)
+        return result
+
+    def _version_original_path(kb: dict, stored_path: str) -> Path:
+        """Resolve current relative paths and legacy absolute paths safely."""
+        data_dir = Path(kb["config"].kb_chroma_dir).parent.resolve()
+        candidate = Path(stored_path)
+        return candidate.resolve() if candidate.is_absolute() else (data_dir / candidate).resolve()
 
     def _write_chunks(
         kb: dict,
@@ -857,7 +1304,217 @@ def create_app() -> FastAPI:
             chunk_indices=[c.chunk_index for c in chunks],
             kb_id=kb_id,
             content_hash=content_hash,
+            extra_metadata=[dict(c.metadata) for c in chunks],
         )
+
+    def _snapshot_from_prepared(
+        *, chunks: list, vectors: list, doc_id: str, doc_title: str, kb_id: str,
+        content_hash: str | None = None,
+    ) -> dict[str, Any]:
+        ids: list[str] = []
+        metadatas: list[dict[str, Any]] = []
+        for chunk in chunks:
+            ids.append(f"{doc_id}-{chunk.chunk_index}")
+            meta = dict(chunk.metadata)
+            meta.update({
+                "doc_id": doc_id,
+                "doc_title": doc_title,
+                "source_type": chunk.source_type,
+                "chunk_index": chunk.chunk_index,
+                "kb_id": kb_id,
+            })
+            if content_hash:
+                meta["content_hash"] = content_hash
+            metadatas.append(meta)
+        return {
+            "ids": ids,
+            "documents": [chunk.text for chunk in chunks],
+            "metadatas": metadatas,
+            "embeddings": vectors,
+        }
+
+    def _read_sync_source(source: dict[str, Any]) -> tuple[bytes, str]:
+        """读取管理员配置的数据源，并执行目录/域名白名单校验。"""
+        import urllib.parse
+        import urllib.request
+
+        location = source["location"]
+        if source["source_type"] == "file":
+            default_root = Path(__file__).resolve().parent.parent / "sync_sources"
+            allowed_root = Path(os.getenv("KB_SYNC_ALLOWED_ROOT", str(default_root))).resolve()
+            configured_path = Path(location)
+            path = (
+                configured_path.resolve()
+                if configured_path.is_absolute()
+                else (allowed_root / configured_path).resolve()
+            )
+            if allowed_root != path and allowed_root not in path.parents:
+                raise ValueError(f"文件数据源必须位于允许目录: {allowed_root}")
+            if not path.is_file():
+                raise ValueError("数据源文件不存在")
+            return path.read_bytes(), path.name
+        parsed = urllib.parse.urlparse(location)
+        allowed_hosts = {
+            host.strip().lower()
+            for host in os.getenv("KB_SYNC_ALLOWED_HOSTS", "").split(",")
+            if host.strip()
+        }
+        if parsed.scheme != "https" or not parsed.hostname or parsed.hostname.lower() not in allowed_hosts:
+            raise ValueError("HTTP 数据源只允许 HTTPS 且域名必须在 KB_SYNC_ALLOWED_HOSTS 中")
+        request = urllib.request.Request(location, headers={"User-Agent": "EnterpriseKB-Sync/1.0"})
+        max_bytes = _MAX_UPLOAD_MB * 1024 * 1024
+
+        class _NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                return None
+
+        opener = urllib.request.build_opener(_NoRedirect())
+        with opener.open(request, timeout=20) as response:  # noqa: S310
+            final = urllib.parse.urlparse(response.geturl())
+            if (
+                final.scheme != "https"
+                or not final.hostname
+                or final.hostname.lower() not in allowed_hosts
+            ):
+                raise ValueError("数据源重定向到了未授权域名")
+            content = response.read(max_bytes + 1)
+        if len(content) > max_bytes:
+            raise ValueError("数据源内容超过上传限制")
+        filename = Path(parsed.path).name or f"source-{source['id']}.txt"
+        return content, filename
+
+    def _run_source_sync(kb: dict, source: dict[str, Any], *, actor: str) -> dict[str, Any]:
+        import io
+
+        lease_stop = Event()
+
+        def renew_lease() -> None:
+            while not lease_stop.wait(60):
+                try:
+                    if not kb["source_store"].renew(source["id"]):
+                        return
+                except Exception as exc:
+                    logger.warning("数据源 %s 续租失败，将继续当前任务: %s", source["id"], exc)
+
+        lease_thread = Thread(
+            target=renew_lease, name=f"kb-source-lease-{source['id']}", daemon=True
+        )
+        lease_thread.start()
+        try:
+            return _run_source_sync_under_lease(kb, source, actor=actor, io_module=io)
+        finally:
+            lease_stop.set()
+            lease_thread.join(timeout=2)
+
+    def _run_source_sync_under_lease(
+        kb: dict, source: dict[str, Any], *, actor: str, io_module: Any
+    ) -> dict[str, Any]:
+
+        content, filename = _read_sync_source(source)
+        digest = hashlib.sha256(content).hexdigest()
+        if digest == source.get("last_hash"):
+            kb["source_store"].mark_result(source["id"], ok=True, content_hash=digest)
+            kb["alert_store"].resolve(f"source-sync-{source['id']}")
+            return {"source_id": source["id"], "changed": False, "doc_id": source.get("doc_id", "")}
+        doc_id = source.get("doc_id") or uuid.uuid4().hex
+        upload = UploadFile(file=io_module.BytesIO(content), filename=filename)
+        chunks, vectors, title, content_hash = _prepare_chunks(
+            kb, upload, doc_id=doc_id, title=source["name"], kb_id=source["kb_id"]
+        )
+        original_name, original_path = _archive_original(kb, upload, doc_id)
+        with _get_doc_lock(doc_id):
+            version = kb["governance_store"].create_version(
+                doc_id=doc_id,
+                kb_id=source["kb_id"],
+                title=title,
+                snapshot=_snapshot_from_prepared(
+                    chunks=chunks,
+                    vectors=vectors,
+                    doc_id=doc_id,
+                    doc_title=title,
+                    kb_id=source["kb_id"],
+                    content_hash=content_hash,
+                ),
+                created_by=actor,
+                state="review",
+                review_note=f"数据源 {source['id']} 自动同步，等待审核",
+                original_name=original_name,
+                original_path=original_path,
+            )
+        kb["source_store"].mark_result(
+            source["id"], ok=True, content_hash=digest, doc_id=doc_id
+        )
+        kb["alert_store"].resolve(f"source-sync-{source['id']}")
+        kb["audit"].record(
+            user_id=actor, action="sync_source", target=str(source["id"]),
+            detail={"doc_id": doc_id, "kb_id": source["kb_id"], "chunks": len(chunks)},
+        )
+        return {
+            "source_id": source["id"], "changed": True, "doc_id": doc_id,
+            "chunks": len(chunks), "version_id": version["id"], "status": "pending_review",
+        }
+
+    def _scan_operational_alerts(kb: dict) -> None:
+        import shutil
+
+        breached_conversations = kb["conversation_store"].sla_breaches()
+        conversation_alerts = {f"conversation-sla-{conv['id']}" for conv in breached_conversations}
+        for conv in breached_conversations:
+            kb["alert_store"].emit(
+                dedupe_key=f"conversation-sla-{conv['id']}",
+                alert_type="conversation_sla",
+                severity="high",
+                target=str(conv["id"]),
+                message=f"会话 {conv['thread_id']} 已超过首次响应 SLA",
+            )
+        kb["alert_store"].resolve_missing("conversation-sla-", conversation_alerts)
+        overdue_tickets = kb["ticket_store"].overdue()
+        ticket_alerts = {f"ticket-overdue-{ticket['id']}" for ticket in overdue_tickets}
+        for ticket in overdue_tickets:
+            kb["alert_store"].emit(
+                dedupe_key=f"ticket-overdue-{ticket['id']}",
+                alert_type="ticket_overdue",
+                severity="high",
+                target=str(ticket["id"]),
+                message=f"工单 {ticket['ticket_no']} 已超过处理期限",
+            )
+        kb["alert_store"].resolve_missing("ticket-overdue-", ticket_alerts)
+        rag = kb["retrieval_log"].stats()
+        if rag["total"] >= 10 and float(rag["avg_faithfulness"]) < 7:
+            kb["alert_store"].emit(
+                dedupe_key="rag-low-faithfulness", alert_type="rag_quality", severity="high",
+                target="rag", message=f"RAG 平均忠实度降至 {rag['avg_faithfulness']}",
+            )
+        else:
+            kb["alert_store"].resolve("rag-low-faithfulness")
+        feedback = kb["feedback_store"].stats()
+        if feedback["total"] >= 10 and float(feedback["satisfaction_rate"]) < 0.8:
+            kb["alert_store"].emit(
+                dedupe_key="feedback-low-satisfaction", alert_type="customer_satisfaction",
+                severity="medium", target="feedback",
+                message=f"满意率降至 {float(feedback['satisfaction_rate']) * 100:.1f}%",
+            )
+        else:
+            kb["alert_store"].resolve("feedback-low-satisfaction")
+        waiting = kb["conversation_store"].stats()["waiting"]
+        waiting_limit = max(1, int(os.getenv("KB_ALERT_WAITING_COUNT", "20")))
+        if waiting >= waiting_limit:
+            kb["alert_store"].emit(
+                dedupe_key="queue-backlog", alert_type="queue_backlog", severity="high",
+                target="waiting", message=f"人工队列积压 {waiting} 条会话",
+            )
+        else:
+            kb["alert_store"].resolve("queue-backlog")
+        data_dir = Path(kb["config"].kb_chroma_dir).parent
+        free_gb = shutil.disk_usage(data_dir).free / (1024**3)
+        min_free_gb = float(os.getenv("KB_ALERT_MIN_FREE_GB", "2"))
+        if free_gb < min_free_gb:
+            kb["alert_store"].emit(
+                dedupe_key="disk-low", alert_type="disk", severity="critical",
+                target=str(data_dir), message=f"数据盘剩余空间仅 {free_gb:.2f}GB",
+            )
+        else:
+            kb["alert_store"].resolve("disk-low")
 
     @app.post("/kb/ingest")
     def kb_ingest(
@@ -886,15 +1543,26 @@ def create_app() -> FastAPI:
                 kb, file, doc_id=doc_id, title=title, kb_id=kb_id, ocr_mode=ocr_mode
             )
             # P1 复核：内容去重——同 hash 已存在则拒绝重复入库，返回已有 doc_id
-            dup_doc = kb["store"].find_doc_by_hash(content_hash)
+            dup_doc = kb["store"].find_doc_by_hash(content_hash, kb_id=kb_id)
             if dup_doc:
                 raise HTTPException(
                     status_code=409,
                     detail=f"文档内容已存在（doc_id={dup_doc}），请勿重复上传",
                 )
+            original_name, original_path = _archive_original(kb, file, doc_id)
             _write_chunks(
                 kb, chunks=chunks, vectors=vectors, doc_id=doc_id,
                 doc_title=resolved_title, kb_id=kb_id, content_hash=content_hash,
+            )
+            kb["governance_store"].create_version(
+                doc_id=doc_id,
+                kb_id=kb_id,
+                title=resolved_title,
+                snapshot=kb["store"].snapshot_doc(doc_id),
+                created_by=user_id or "anonymous",
+                state="published",
+                original_name=original_name,
+                original_path=original_path,
             )
             kb["audit"].record(
                 user_id=user_id or "anonymous", action="ingest", target=doc_id,
@@ -931,23 +1599,27 @@ def create_app() -> FastAPI:
             # 限流：按 user_id（未认证用 anonymous 共用桶）
             if not _kb_ask_limiter.allow(user_id or "anonymous"):
                 raise HTTPException(status_code=429, detail="问答请求过于频繁，请稍后再试")
+            conv, history, thread_id = _prepare_chat_turn(kb, payload, user_id)
             from services.kb import qa_graph
 
             start = time.time()
             result = qa_graph.run_qa(
                 kb["graph"],
                 question=payload.question,
-                history=payload.history,
+                history=history,
                 kb_id=payload.kb_id,
-                thread_id=payload.thread_id,
+                metadata_filters=payload.metadata_filters,
+                thread_id=thread_id,
             )
             # 客服改造第3项：检索日志留痕（答错时回放定位）
+            from services.kb.privacy import redact_text
+
             meta = result.get("search_meta", {})
             kb["retrieval_log"].record(
                 kb_id=payload.kb_id,
-                thread_id=payload.thread_id or "",
-                question=payload.question,
-                rewritten=meta.get("rewritten", ""),
+                thread_id=thread_id,
+                question=redact_text(payload.question),
+                rewritten=redact_text(meta.get("rewritten", "")),
                 rerank_mode=os.getenv("KB_RERANK_MODE", "llm"),
                 answerable=not meta.get("escalate", False),
                 evidence_score=meta.get("top_score", 0.0),
@@ -957,48 +1629,141 @@ def create_app() -> FastAPI:
                 hits=meta.get("recall_raw", []),
                 final_hits=meta.get("contexts", []),
                 faithfulness=result.get("score", 0),
-                answer=result.get("answer", ""),
+                answer=redact_text(result.get("answer", "")),
             )
-            # 客服改造第9项：转人工——escalate 时建会话 + 进待接入池
-            if result.get("escalate"):
-                conv = kb["conversation_store"].get_or_create(
-                    payload.thread_id or uuid.uuid4().hex,
-                    kb_id=payload.kb_id,
-                    visitor_id=user_id or "anonymous",
-                )
-                kb["conversation_store"].add_message(conv["id"], "user", payload.question)
-                kb["conversation_store"].add_message(
-                    conv["id"], "assistant", result.get("answer", "")
-                )
-                transferred = kb["conversation_store"].transfer_to_human(
-                    conv["id"], "可回答性门槛两次不过"
-                )
-                if transferred:
-                    kb["audit"].record(
-                        user_id=user_id or "anonymous",
-                        action="transfer_to_human",
-                        target=str(conv["id"]),
-                    )
-                result["conversation_id"] = conv["id"]
-                result["status"] = "waiting"
+            _finish_chat_turn(kb, conv, result, actor=user_id or "anonymous")
             return result
         except HTTPException:
             raise  # 403 等 HTTP 异常直接抛出，不被转 500
         except Exception as exc:
-            logger.error("KB ask failed: {}", exc)
-            raise HTTPException(status_code=500, detail=f"问答失败: {exc}") from exc
+            logger.exception("KB ask failed")
+            raise HTTPException(status_code=500, detail="问答服务暂时不可用") from exc
 
     @app.get("/kb/conversation/{conv_id}/status")
-    def kb_conversation_status(conv_id: int) -> Dict[str, Any]:
-        """查会话状态（访客转人工后轮询坐席是否接入用，无鉴权）。
-
-        返回 {status: ai/waiting/human/closed, agent_id}。会话不存在 404。
-        """
+    def kb_conversation_status(
+        conv_id: int,
+        visitor_token: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """查当前用户拥有的会话状态。"""
         kb = _get_kb()
-        conv = kb["conversation_store"].get(conv_id)
-        if not conv:
-            raise HTTPException(status_code=404, detail="会话不存在")
+        user_id = _resolve_user_id(kb, x_api_token, None)
+        owner_key = _conversation_owner_key(kb, user_id, visitor_token, required=True)
+        conv = _owned_conversation(kb, conv_id=conv_id, owner_key=owner_key)
         return {"conversation_id": conv_id, "status": conv["status"], "agent_id": conv["agent_id"]}
+
+    @app.get("/kb/conversations/{thread_id}/messages")
+    def kb_conversation_messages(
+        thread_id: str,
+        visitor_token: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """恢复当前用户拥有的完整会话消息。"""
+        kb = _get_kb()
+        user_id = _resolve_user_id(kb, x_api_token, None)
+        owner_key = _conversation_owner_key(kb, user_id, visitor_token, required=True)
+        conv = _owned_conversation(kb, thread_id=thread_id, owner_key=owner_key)
+        _require_kb_access(kb, user_id, conv["kb_id"])
+        return {
+            "conversation": conv,
+            "messages": kb["conversation_store"].list_messages(conv["id"]),
+        }
+
+    @app.get("/kb/conversations")
+    def kb_list_owned_conversations(
+        kb_id: str | None = Query(default=None),
+        visitor_token: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        limit: int = Query(default=100, ge=1, le=200),
+    ) -> Dict[str, Any]:
+        """列出当前登录用户或匿名访客自己的会话。"""
+        kb = _get_kb()
+        user_id = _resolve_user_id(kb, x_api_token, None)
+        owner_key = _conversation_owner_key(kb, user_id, visitor_token, required=True)
+        conversations = kb["conversation_store"].list_for_owner(owner_key, limit=limit)
+        if kb_id:
+            _require_kb_access(kb, user_id, kb_id)
+            conversations = [c for c in conversations if c["kb_id"] == kb_id]
+        return {"conversations": conversations}
+
+    @app.delete("/kb/conversations/{thread_id}")
+    def kb_delete_owned_conversation(
+        thread_id: str,
+        visitor_token: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """删除当前用户自己的会话消息和模型检查点。"""
+        kb = _get_kb()
+        user_id = _resolve_user_id(kb, x_api_token, None)
+        owner_key = _conversation_owner_key(kb, user_id, visitor_token, required=True)
+        _owned_conversation(kb, thread_id=thread_id, owner_key=owner_key)
+        removed = kb["conversation_store"].delete_owned(thread_id, owner_key)
+        conn = kb["checkpoint_conn"]
+        checkpoint_tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name IN ('checkpoints','writes')"
+            ).fetchall()
+        }
+        for table in checkpoint_tables:
+            conn.execute(f"DELETE FROM {table} WHERE thread_id=?", (thread_id,))
+        conn.commit()
+        return {"thread_id": thread_id, "deleted": removed}
+
+    @app.post("/kb/conversations/{thread_id}/messages")
+    def kb_send_human_message(
+        thread_id: str,
+        payload: ConversationMessageRequest = Body(...),
+        x_api_token: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """访客在等待或人工服务期间继续发送消息。"""
+        kb = _get_kb()
+        user_id = _resolve_user_id(kb, x_api_token, None)
+        owner_key = _conversation_owner_key(
+            kb, user_id, payload.visitor_token, required=True
+        )
+        conv = _owned_conversation(kb, thread_id=thread_id, owner_key=owner_key)
+        _require_kb_access(kb, user_id, conv["kb_id"])
+        if conv["status"] not in {"waiting", "human"}:
+            raise HTTPException(status_code=409, detail="该会话当前不在人工服务中")
+        from services.kb.privacy import redact_text
+
+        safe_content = redact_text(payload.content.strip())
+        message_id = kb["conversation_store"].add_message(
+            conv["id"], "user", safe_content
+        )
+        return {
+            "conversation": kb["conversation_store"].get(conv["id"]),
+            "message": {
+                "id": message_id,
+                "role": "user",
+                "content": safe_content,
+            },
+        }
+
+    @app.post("/kb/conversations/{thread_id}/close")
+    def kb_close_owned_human_conversation(
+        thread_id: str,
+        visitor_token: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """访客主动结束自己的人工会话，保留历史记录并返回智能客服。"""
+        kb = _get_kb()
+        user_id = _resolve_user_id(kb, x_api_token, None)
+        owner_key = _conversation_owner_key(kb, user_id, visitor_token, required=True)
+        conv = _owned_conversation(kb, thread_id=thread_id, owner_key=owner_key)
+        _require_kb_access(kb, user_id, conv["kb_id"])
+        if conv["status"] not in {"waiting", "human", "closed"}:
+            raise HTTPException(status_code=409, detail="该会话当前不在人工服务中")
+        if conv["status"] != "closed":
+            kb["conversation_store"].close(conv["id"])
+            kb["audit"].record(
+                user_id=owner_key,
+                action="visitor_close_conversation",
+                target=str(conv["id"]),
+            )
+        return {"thread_id": thread_id, "closed": True}
 
     @app.post("/kb/ask/stream")
     def kb_ask_stream(
@@ -1015,10 +1780,12 @@ def create_app() -> FastAPI:
             _require_kb_access(kb, user_id, payload.kb_id)
             if not _kb_ask_limiter.allow(user_id or "anonymous"):
                 raise HTTPException(status_code=429, detail="问答请求过于频繁，请稍后再试")
+            conv, history, thread_id = _prepare_chat_turn(kb, payload, user_id)
         except HTTPException:
             raise
 
         from services.kb import qa_graph
+        stream_request_id = _request_id_ctx.get()
 
         def event_iterator() -> Iterator[str]:
             start = time.time()
@@ -1027,23 +1794,29 @@ def create_app() -> FastAPI:
                 for event in qa_graph.run_qa_stream(
                     kb["graph"],
                     question=payload.question,
-                    history=payload.history,
+                    history=history,
                     kb_id=payload.kb_id,
-                    thread_id=payload.thread_id,
+                    metadata_filters=payload.metadata_filters,
+                    thread_id=thread_id,
                 ):
                     if event.get("type") == "final":
                         # P0-2：final 先缓冲不 yield，等会话善后回填 conversation_id/status 再发
-                        final_event = event
+                        final_event = dict(event)
+                        final_event["request_id"] = stream_request_id
                         continue
-                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                    event_payload = dict(event)
+                    event_payload["request_id"] = stream_request_id
+                    yield f"data: {json.dumps(event_payload, ensure_ascii=False)}\n\n"
                 # P1：final 之后补齐与同步 /kb/ask 一致的检索日志落库 + escalate 转人工闭环
                 if final_event is not None:
+                    from services.kb.privacy import redact_text
+
                     meta = final_event.get("search_meta", {})
                     kb["retrieval_log"].record(
                         kb_id=payload.kb_id,
-                        thread_id=payload.thread_id or "",
-                        question=payload.question,
-                        rewritten=meta.get("rewritten", ""),
+                        thread_id=thread_id,
+                        question=redact_text(payload.question),
+                        rewritten=redact_text(meta.get("rewritten", "")),
                         rerank_mode=os.getenv("KB_RERANK_MODE", "llm"),
                         answerable=not meta.get("escalate", False),
                         evidence_score=meta.get("top_score", 0.0),
@@ -1053,41 +1826,445 @@ def create_app() -> FastAPI:
                         hits=meta.get("recall_raw", []),
                         final_hits=meta.get("contexts", []),
                         faithfulness=final_event.get("score", 0),
-                        answer=final_event.get("answer", ""),
+                        answer=redact_text(final_event.get("answer", "")),
                     )
-                    if final_event.get("escalate"):
-                        conv = kb["conversation_store"].get_or_create(
-                            payload.thread_id or uuid.uuid4().hex,
-                            kb_id=payload.kb_id,
-                            visitor_id=user_id or "anonymous",
-                        )
-                        kb["conversation_store"].add_message(conv["id"], "user", payload.question)
-                        kb["conversation_store"].add_message(
-                            conv["id"], "assistant", final_event.get("answer", "")
-                        )
-                        transferred = kb["conversation_store"].transfer_to_human(
-                            conv["id"], "可回答性门槛两次不过"
-                        )
-                        if transferred:
-                            kb["audit"].record(
-                                user_id=user_id or "anonymous",
-                                action="transfer_to_human",
-                                target=str(conv["id"]),
-                            )
-                        # P0-2：回填会话字段，让挂件能轮询坐席状态
-                        final_event["conversation_id"] = conv["id"]
-                        final_event["status"] = "waiting"
+                    _finish_chat_turn(
+                        kb, conv, final_event, actor=user_id or "anonymous"
+                    )
                     # 善后完成后才 yield final
                     yield f"data: {json.dumps(final_event, ensure_ascii=False)}\n\n"
-            except Exception as exc:
+            except Exception:
                 logger.exception("KB ask stream failed")
-                yield f"data: {json.dumps({'type': 'error', 'detail': str(exc)}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'error', 'code': 'INTERNAL_ERROR', 'message': '流式问答服务暂时不可用', 'request_id': stream_request_id}, ensure_ascii=False)}\n\n"
 
         return StreamingResponse(
             event_iterator(),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
         )
+
+    @app.get("/kb/financial-metrics")
+    def list_financial_metrics(
+        kb_id: str = Query(default="default", min_length=1),
+        company_name: str | None = Query(default=None),
+        report_period: str | None = Query(default=None),
+        metric_code: str | None = Query(default=None),
+        limit: int = Query(default=50, ge=1, le=200),
+        offset: int = Query(default=0, ge=0),
+        user_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        kb = _get_kb()
+        resolved_user = _resolve_user_id(kb, x_api_token, user_id)
+        _require_kb_access(kb, resolved_user, kb_id)
+        try:
+            items, total = kb["financial_metric_store"].list(
+                kb_id=kb_id,
+                company_name=company_name,
+                report_period=report_period,
+                metric_code=metric_code,
+                limit=limit,
+                offset=offset,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {"items": items, "total": total, "limit": limit, "offset": offset}
+
+    @app.get("/kb/company-analysis")
+    def get_company_analysis(
+        kb_id: str = Query(default="default", min_length=1),
+        company_name: str = Query(..., min_length=1),
+        report_period: str = Query(..., min_length=1),
+        comparison_period: str | None = Query(default=None),
+        user_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        from services.kb.company_analysis import analyze_company
+
+        kb = _get_kb()
+        resolved_user = _resolve_user_id(kb, x_api_token, user_id)
+        _require_kb_access(kb, resolved_user, kb_id)
+        try:
+            return analyze_company(
+                kb["financial_metric_store"],
+                kb_id=kb_id,
+                company_name=company_name,
+                report_period=report_period,
+                comparison_period=comparison_period,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/kb/peer-comparison")
+    def get_peer_comparison(
+        company_names: list[str] = Query(..., min_length=2, max_length=3),
+        report_period: str = Query(..., min_length=1),
+        kb_id: str = Query(default="default", min_length=1),
+        metric_codes: list[str] | None = Query(default=None),
+        user_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        from services.kb.peer_comparison import compare_companies
+
+        kb = _get_kb()
+        resolved_user = _resolve_user_id(kb, x_api_token, user_id)
+        _require_kb_access(kb, resolved_user, kb_id)
+        try:
+            return compare_companies(
+                kb["financial_metric_store"],
+                kb_id=kb_id,
+                company_names=company_names,
+                report_period=report_period,
+                metric_codes=metric_codes,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/kb/company-analysis/export")
+    def export_company_analysis(
+        kb_id: str = Query(default="default", min_length=1),
+        company_name: str = Query(..., min_length=1),
+        report_period: str = Query(..., min_length=1),
+        comparison_period: str | None = Query(default=None),
+        user_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+    ) -> Response:
+        from services.kb.company_analysis import analyze_company
+        from services.kb.research_export import render_company_analysis
+
+        kb = _get_kb()
+        resolved_user = _resolve_user_id(kb, x_api_token, user_id)
+        _require_kb_access(kb, resolved_user, kb_id)
+        try:
+            result = analyze_company(
+                kb["financial_metric_store"],
+                kb_id=kb_id,
+                company_name=company_name,
+                report_period=report_period,
+                comparison_period=comparison_period,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return Response(
+            content=render_company_analysis(result, kb_id=kb_id),
+            media_type="text/markdown",
+            headers={"Content-Disposition": 'attachment; filename="company-analysis-export.md"'},
+        )
+
+    @app.get("/kb/peer-comparison/export")
+    def export_peer_comparison(
+        company_names: list[str] = Query(..., min_length=2, max_length=3),
+        report_period: str = Query(..., min_length=1),
+        kb_id: str = Query(default="default", min_length=1),
+        metric_codes: list[str] | None = Query(default=None),
+        user_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+    ) -> Response:
+        from services.kb.peer_comparison import compare_companies
+        from services.kb.research_export import render_peer_comparison
+
+        kb = _get_kb()
+        resolved_user = _resolve_user_id(kb, x_api_token, user_id)
+        _require_kb_access(kb, resolved_user, kb_id)
+        try:
+            result = compare_companies(
+                kb["financial_metric_store"],
+                kb_id=kb_id,
+                company_names=company_names,
+                report_period=report_period,
+                metric_codes=metric_codes,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return Response(
+            content=render_peer_comparison(result, kb_id=kb_id),
+            media_type="text/markdown",
+            headers={"Content-Disposition": 'attachment; filename="peer-comparison-export.md"'},
+        )
+
+    @app.post("/kb/financial-metrics")
+    def create_financial_metric(
+        payload: FinancialMetricCreateRequest,
+        x_api_token: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        kb = _get_kb()
+        resolved_user = _resolve_user_id(kb, x_api_token, payload.user_id)
+        _require_kb_access(kb, resolved_user, payload.kb_id, required=True)
+        data = payload.model_dump(exclude={"user_id", "created_by", "normalized_value", "normalized_unit"})
+        data["created_by"] = resolved_user or ""
+        try:
+            item = kb["financial_metric_store"].create(data)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {"item": item}
+
+    # ==================== 企业系统接入层（v1） ====================
+    # 该层只负责协议适配：保留 /kb/* 作为内部/兼容接口，企业系统使用稳定的
+    # knowledge_base_id 字段和统一的 request_id 响应。业务权限仍由原有 RBAC 校验。
+
+    def _v1_auth_token(
+        x_api_token: str | None, authorization: str | None
+    ) -> str:
+        """解析双凭据；v1 始终要求 token，避免退回 user_id/匿名鉴权。"""
+        header_token: str | None = None
+        bearer_token: str | None = None
+        if x_api_token is not None:
+            candidate = x_api_token.strip()
+            if not candidate or candidate != x_api_token or any(ch.isspace() for ch in candidate):
+                raise HTTPException(status_code=401, detail="X-Api-Token 格式无效")
+            header_token = candidate
+        if authorization is not None:
+            parts = authorization.split(" ")
+            if len(parts) != 2 or parts[0].lower() != "bearer" or not parts[1]:
+                raise HTTPException(status_code=401, detail="Authorization 必须使用 Bearer token")
+            if any(ch.isspace() for ch in parts[1]):
+                raise HTTPException(status_code=401, detail="Authorization token 格式无效")
+            bearer_token = parts[1]
+        if header_token and bearer_token:
+            if not hmac.compare_digest(header_token, bearer_token):
+                raise HTTPException(status_code=401, detail="两个凭据不一致")
+            return header_token
+        if header_token or bearer_token:
+            token = header_token or bearer_token
+            assert token is not None
+            return token
+        raise HTTPException(status_code=401, detail="v1 接口必须提供 API token")
+
+    def _v1_response(
+        payload: dict[str, Any], knowledge_base_id: str
+    ) -> dict[str, Any]:
+        result = dict(payload)
+        result["knowledge_base_id"] = knowledge_base_id
+        result["request_id"] = _request_id_ctx.get()
+        return result
+
+    def _v1_safe_query_response(
+        payload: dict[str, Any], knowledge_base_id: str
+    ) -> dict[str, Any]:
+        """仅向企业系统暴露问答业务字段，隐藏检索/评估内部调试数据。"""
+        allowed = {
+            "answer", "citations", "sources", "status", "thread_id",
+            "conversation_id", "escalate", "intent", "faq_hit", "needs_clarification",
+        }
+        return _v1_response(
+            {key: value for key, value in payload.items() if key in allowed},
+            knowledge_base_id,
+        )
+
+    def _v1_query_param(
+        value: str | None, name: str, max_length: int
+    ) -> str | None:
+        if value is None:
+            return None
+        if not value.strip() or len(value) > max_length:
+            raise HTTPException(status_code=422, detail=f"{name} 不能为空且不超过 {max_length} 字符")
+        return value
+
+    @app.post(
+        "/api/v1/query", response_model=V1QueryResponse,
+        responses=_V1_SECURITY_RESPONSES,
+        dependencies=[Security(_V1_BEARER_SECURITY), Security(_V1_API_TOKEN_SECURITY)],
+    )
+    @app.post("/api/v1/queries", include_in_schema=False)
+    def v1_query(
+        payload: V1QueryRequest = Body(...),
+        authorization: str | None = Header(default=None),
+        x_api_token: str | None = Header(default=None),
+    ) -> V1QueryResponse:
+        token = _v1_auth_token(x_api_token, authorization)
+        internal = KbAskRequest(
+            question=payload.question,
+            history=payload.history,
+            kb_id=payload.knowledge_base_id,
+            thread_id=payload.thread_id,
+            user_id=payload.user_id,
+            metadata_filters=payload.metadata_filters,
+        )
+        return _v1_safe_query_response(kb_ask(internal, x_api_token=token), payload.knowledge_base_id)
+
+    @app.post(
+        "/api/v1/query/stream", response_class=V1EventStreamResponse,
+        responses=_V1_SECURITY_RESPONSES,
+        dependencies=[Security(_V1_BEARER_SECURITY), Security(_V1_API_TOKEN_SECURITY)],
+    )
+    @app.post("/api/v1/queries/stream", include_in_schema=False)
+    def v1_query_stream(
+        payload: V1QueryRequest = Body(...),
+        authorization: str | None = Header(default=None),
+        x_api_token: str | None = Header(default=None),
+    ) -> StreamingResponse:
+        token = _v1_auth_token(x_api_token, authorization)
+        internal = KbAskRequest(
+            question=payload.question,
+            history=payload.history,
+            kb_id=payload.knowledge_base_id,
+            thread_id=payload.thread_id,
+            user_id=payload.user_id,
+            metadata_filters=payload.metadata_filters,
+        )
+        response = kb_ask_stream(internal, x_api_token=token)
+        response.headers["X-Request-Id"] = _request_id_ctx.get()
+        return response
+
+    @app.get(
+        "/api/v1/financial-metrics", response_model=V1MetricsResponse,
+        responses=_V1_SECURITY_RESPONSES,
+        dependencies=[Security(_V1_BEARER_SECURITY), Security(_V1_API_TOKEN_SECURITY)],
+    )
+    def v1_financial_metrics(
+        knowledge_base_id: str = Query(..., min_length=1, max_length=64),
+        company_name: str | None = Query(default=None, max_length=256),
+        report_period: str | None = Query(default=None, max_length=64),
+        metric_code: str | None = Query(default=None, max_length=64),
+        limit: int = Query(default=50, ge=1, le=200),
+        offset: int = Query(default=0, ge=0),
+        user_id: str | None = Query(default=None, max_length=128),
+        authorization: str | None = Header(default=None),
+        x_api_token: str | None = Header(default=None),
+    ) -> V1MetricsResponse:
+        token = _v1_auth_token(x_api_token, authorization)
+        _v1_query_param(knowledge_base_id, "knowledge_base_id", 64)
+        _v1_query_param(company_name, "company_name", 256)
+        _v1_query_param(report_period, "report_period", 64)
+        _v1_query_param(metric_code, "metric_code", 64)
+        _v1_query_param(user_id, "user_id", 128)
+        result = list_financial_metrics(
+            kb_id=knowledge_base_id,
+            company_name=company_name,
+            report_period=report_period,
+            metric_code=metric_code,
+            limit=limit,
+            offset=offset,
+            user_id=user_id,
+            x_api_token=token,
+        )
+        return _v1_response(result, knowledge_base_id)
+
+    @app.post(
+        "/api/v1/company-analyses", response_model=V1CompanyAnalysisResponse,
+        responses=_V1_SECURITY_RESPONSES,
+        dependencies=[Security(_V1_BEARER_SECURITY), Security(_V1_API_TOKEN_SECURITY)],
+    )
+    def v1_company_analysis(
+        payload: V1CompanyAnalysisRequest = Body(...),
+        authorization: str | None = Header(default=None),
+        x_api_token: str | None = Header(default=None),
+    ) -> V1CompanyAnalysisResponse:
+        token = _v1_auth_token(x_api_token, authorization)
+        result = get_company_analysis(
+            kb_id=payload.knowledge_base_id,
+            company_name=payload.company_name,
+            report_period=payload.report_period,
+            comparison_period=payload.comparison_period,
+            user_id=payload.user_id,
+            x_api_token=token,
+        )
+        return _v1_response(result, payload.knowledge_base_id)
+
+    @app.post(
+        "/api/v1/peer-comparisons", response_model=V1PeerComparisonResponse,
+        responses=_V1_SECURITY_RESPONSES,
+        dependencies=[Security(_V1_BEARER_SECURITY), Security(_V1_API_TOKEN_SECURITY)],
+    )
+    def v1_peer_comparison(
+        payload: V1PeerComparisonRequest = Body(...),
+        authorization: str | None = Header(default=None),
+        x_api_token: str | None = Header(default=None),
+    ) -> V1PeerComparisonResponse:
+        token = _v1_auth_token(x_api_token, authorization)
+        result = get_peer_comparison(
+            company_names=payload.company_names,
+            report_period=payload.report_period,
+            kb_id=payload.knowledge_base_id,
+            metric_codes=payload.metric_codes,
+            user_id=payload.user_id,
+            x_api_token=token,
+        )
+        return _v1_response(result, payload.knowledge_base_id)
+
+    @app.post(
+        "/api/v1/reports/export", response_model=V1ExportResponse,
+        responses=_V1_SECURITY_RESPONSES,
+        dependencies=[Security(_V1_BEARER_SECURITY), Security(_V1_API_TOKEN_SECURITY)],
+    )
+    def v1_reports_export(
+        payload: V1ReportExportRequest = Body(...),
+        authorization: str | None = Header(default=None),
+        x_api_token: str | None = Header(default=None),
+    ) -> V1ExportResponse:
+        """导出研究底稿，返回 JSON 内容供已有系统保存或下载。"""
+        token = _v1_auth_token(x_api_token, authorization)
+        if payload.report_type == "company_analysis":
+            if not payload.company_name:
+                raise HTTPException(status_code=422, detail="company_name 不能为空")
+            response = export_company_analysis(
+                kb_id=payload.knowledge_base_id,
+                company_name=payload.company_name,
+                report_period=payload.report_period,
+                comparison_period=payload.comparison_period,
+                user_id=payload.user_id,
+                x_api_token=token,
+            )
+            filename = "company-analysis-export.md"
+        else:
+            if not payload.company_names or not 2 <= len(payload.company_names) <= 3:
+                raise HTTPException(status_code=422, detail="company_names 必须包含 2 至 3 家公司")
+            response = export_peer_comparison(
+                company_names=payload.company_names,
+                report_period=payload.report_period,
+                kb_id=payload.knowledge_base_id,
+                metric_codes=payload.metric_codes,
+                user_id=payload.user_id,
+                x_api_token=token,
+            )
+            filename = "peer-comparison-export.md"
+        content = response.body.decode("utf-8") if isinstance(response.body, bytes) else str(response.body)
+        return _v1_response(
+            {
+                "report_type": payload.report_type,
+                "filename": filename,
+                "content_type": "text/markdown; charset=utf-8",
+                "content": content,
+            },
+            payload.knowledge_base_id,
+        )
+
+    @app.get("/kb/financial-metrics/{metric_id}/revisions")
+    def list_financial_metric_revisions(
+        metric_id: int,
+        user_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        kb = _get_kb()
+        item = kb["financial_metric_store"].get(metric_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="财务指标记录不存在")
+        resolved_user = _resolve_user_id(kb, x_api_token, user_id)
+        _require_kb_access(kb, resolved_user, item["kb_id"])
+        return {"revisions": kb["financial_metric_store"].revisions(metric_id)}
+
+    @app.patch("/kb/financial-metrics/{metric_id}")
+    def patch_financial_metric(
+        metric_id: int,
+        payload: FinancialMetricPatchRequest,
+        x_api_token: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        kb = _get_kb()
+        existing = kb["financial_metric_store"].get(metric_id)
+        if not existing:
+            raise HTTPException(status_code=404, detail="财务指标记录不存在")
+        resolved_user = _resolve_user_id(kb, x_api_token, payload.user_id)
+        _require_kb_access(kb, resolved_user, existing["kb_id"], required=True)
+        patch = payload.model_dump(exclude={"reason", "user_id"}, exclude_unset=True)
+        try:
+            item = kb["financial_metric_store"].update(
+                metric_id, patch, actor=resolved_user or "", reason=payload.reason
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if not item:
+            raise HTTPException(status_code=404, detail="财务指标记录不存在")
+        return {"item": item}
 
     @app.get("/kb/docs")
     def kb_list_docs(
@@ -1111,6 +2288,9 @@ def create_app() -> FastAPI:
             if user_id and not kb_id:
                 allowed = set(kb["auth"].get_allowed_kbs(user_id))
                 docs = [d for d in docs if d.get("kb_id") in allowed]
+            elif not user_id and not kb_id and _ENFORCE_KB_VISIBILITY:
+                public_ids = kb["kb_meta_store"].public_ids()
+                docs = [d for d in docs if d.get("kb_id") in public_ids]
             return {
                 "docs": docs,
                 "total": total,
@@ -1138,8 +2318,12 @@ def create_app() -> FastAPI:
             user_id = _resolve_user_id(kb, x_api_token, user_id)
             kbs = kb["store"].list_kbs()
             if user_id:
-                allowed = set(kb["auth"].get_allowed_kbs(user_id))
-                kbs = [k for k in kbs if k in allowed]
+                if not kb["auth"].is_admin(user_id):
+                    allowed = set(kb["auth"].get_allowed_kbs(user_id))
+                    kbs = [k for k in kbs if k in allowed]
+            elif _ENFORCE_KB_VISIBILITY:
+                public_ids = kb["kb_meta_store"].public_ids()
+                kbs = [k for k in kbs if k in public_ids]
             return {"kbs": kbs}
         except HTTPException:
             raise  # 401/403 直接抛出，不被转 500
@@ -1200,6 +2384,7 @@ def create_app() -> FastAPI:
                 chunks, vectors, resolved_title, content_hash = _prepare_chunks(
                     kb, file, doc_id=doc_id, title=title, kb_id=kb_id, ocr_mode=ocr_mode
                 )
+                original_name, original_path = _archive_original(kb, file, doc_id)
                 # 2. 原子写（upsert 同 id 覆盖，单次调用）
                 old_ids = set(kb["store"].get_doc_ids(doc_id))
                 new_ids = _write_chunks(
@@ -1210,6 +2395,16 @@ def create_app() -> FastAPI:
                 new_set = set(new_ids)  # 复核修复：提出循环，避免每元素重建 set
                 stale = [cid for cid in old_ids if cid not in new_set]
                 deleted = kb["store"].delete_chunk_ids(stale, kb_id=kb_id)
+                kb["governance_store"].create_version(
+                    doc_id=doc_id,
+                    kb_id=kb_id,
+                    title=resolved_title,
+                    snapshot=kb["store"].snapshot_doc(doc_id),
+                    created_by=user_id or "anonymous",
+                    state="published",
+                    original_name=original_name,
+                    original_path=original_path,
+                )
             kb["audit"].record(
                 user_id=user_id or "anonymous", action="update", target=doc_id,
                 detail={"kb_id": kb_id, "chunks": len(chunks), "stale_removed": deleted},
@@ -1229,7 +2424,532 @@ def create_app() -> FastAPI:
             logger.error("KB update failed: {}", exc)
             raise HTTPException(status_code=500, detail=f"更新失败: {exc}") from exc
 
+    @app.post("/kb/docs/{doc_id}/versions")
+    def kb_stage_doc_version(
+        doc_id: str,
+        file: UploadFile = File(...),
+        title: str | None = Form(default=None),
+        kb_id: str = Form(default="default"),
+        ocr_mode: Literal["local", "baidu", "auto"] = Form(default="local"),
+        user_id: str | None = Form(default=None),
+        x_api_token: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        """创建不影响线上检索的文档草稿版本。"""
+        kb = _get_kb()
+        user_id = _resolve_user_id(kb, x_api_token, user_id)
+        _require_kb_access(kb, user_id, kb_id, required=True)
+        existing_kb = kb["store"].get_doc_kb_id(doc_id)
+        if not existing_kb:
+            raise HTTPException(status_code=404, detail="文档不存在")
+        if existing_kb != kb_id:
+            raise HTTPException(status_code=409, detail="文档所属知识库不一致")
+        chunks, vectors, resolved_title, content_hash = _prepare_chunks(
+            kb, file, doc_id=doc_id, title=title, kb_id=kb_id, ocr_mode=ocr_mode
+        )
+        original_name, original_path = _archive_original(kb, file, doc_id)
+        version = kb["governance_store"].create_version(
+            doc_id=doc_id,
+            kb_id=kb_id,
+            title=resolved_title,
+            snapshot=_snapshot_from_prepared(
+                chunks=chunks,
+                vectors=vectors,
+                doc_id=doc_id,
+                doc_title=resolved_title,
+                kb_id=kb_id,
+                content_hash=content_hash,
+            ),
+            created_by=user_id or "anonymous",
+            state="draft",
+            original_name=original_name,
+            original_path=original_path,
+        )
+        kb["audit"].record(
+            user_id=user_id or "anonymous", action="create_doc_draft", target=str(version["id"])
+        )
+        return _public_version(version)
+
+    @app.get("/kb/docs/{doc_id}/versions")
+    def kb_list_doc_versions(
+        doc_id: str,
+        user_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        kb = _get_kb()
+        user_id = _resolve_user_id(kb, x_api_token, user_id)
+        versions = kb["governance_store"].list_versions(doc_id)
+        kb_id = kb["store"].get_doc_kb_id(doc_id)
+        if not kb_id and versions:
+            kb_id = versions[0]["kb_id"]
+        if kb_id:
+            _require_kb_access(kb, user_id, kb_id, required=True)
+        if not versions and kb_id:
+            snapshot = kb["store"].snapshot_doc(doc_id)
+            if snapshot.get("ids"):
+                metadata = (snapshot.get("metadatas") or [{}])[0] or {}
+                kb["governance_store"].create_version(
+                    doc_id=doc_id,
+                    kb_id=kb_id,
+                    title=str(metadata.get("doc_title", doc_id)),
+                    snapshot=snapshot,
+                    created_by="migration",
+                    state="published",
+                    review_note="Existing document baseline",
+                )
+                versions = kb["governance_store"].list_versions(doc_id)
+        return {"versions": versions}
+
+    @app.get("/kb/docs/versions/pending")
+    def kb_list_pending_doc_versions(
+        kb_id: str | None = Query(default=None),
+        operator_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        kb = _get_kb()
+        operator = _require_kb_supervisor(kb, x_api_key, x_api_token, operator_id)
+        versions = kb["governance_store"].list_pending(kb_id)
+        if not operator.startswith("api_key:"):
+            versions = [
+                version for version in versions
+                if kb["auth"].can_access(operator, version["kb_id"])
+            ]
+        return {"versions": versions}
+
+    @app.post("/kb/docs/versions/{version_id}/submit")
+    def kb_submit_doc_version(
+        version_id: int,
+        user_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        kb = _get_kb()
+        user_id = _resolve_user_id(kb, x_api_token, user_id)
+        version = kb["governance_store"].get(version_id)
+        if not version:
+            raise HTTPException(status_code=404, detail="文档版本不存在")
+        _require_kb_access(kb, user_id, version["kb_id"], required=True)
+        updated = kb["governance_store"].transition(
+            version_id, "review", actor=user_id or "anonymous"
+        )
+        return _public_version(updated) if updated else {}
+
+    @app.get("/kb/docs/versions/{version_id}/original")
+    def kb_download_doc_original(
+        version_id: int,
+        user_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+    ) -> FileResponse:
+        kb = _get_kb()
+        user_id = _resolve_user_id(kb, x_api_token, user_id)
+        version = kb["governance_store"].get(version_id)
+        if not version:
+            raise HTTPException(status_code=404, detail="文档版本不存在")
+        _require_kb_access(kb, user_id, version["kb_id"])
+        path = _version_original_path(kb, version.get("original_path", ""))
+        allowed_root = (
+            Path(kb["config"].kb_chroma_dir).parent / "document_originals"
+        ).resolve()
+        if not path.is_file() or allowed_root not in path.parents:
+            raise HTTPException(status_code=404, detail="原始文件不存在")
+        return FileResponse(path, filename=version.get("original_name") or path.name)
+
+    @app.post("/kb/docs/versions/{version_id}/review")
+    def kb_review_doc_version(
+        version_id: int,
+        action: Literal["approve", "reject"] = Form(...),
+        note: str = Form(default=""),
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        kb = _get_kb()
+        operator = _require_kb_supervisor(kb, x_api_key, x_api_token, admin_id)
+        target = "approved" if action == "approve" else "rejected"
+        version = kb["governance_store"].get(version_id)
+        if not version:
+            raise HTTPException(status_code=404, detail="文档版本不存在")
+        if not operator.startswith("api_key:"):
+            _require_kb_access(kb, operator, version["kb_id"], required=True)
+        try:
+            updated = kb["governance_store"].transition(
+                version_id, target, actor=operator, note=note
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        if not updated:
+            raise HTTPException(status_code=404, detail="文档版本不存在")
+        return _public_version(updated)
+
+    @app.post("/kb/docs/versions/{version_id}/publish")
+    def kb_publish_doc_version(
+        version_id: int,
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        kb = _get_kb()
+        operator = _require_kb_supervisor(kb, x_api_key, x_api_token, admin_id)
+        version = kb["governance_store"].get(version_id)
+        if not version:
+            raise HTTPException(status_code=404, detail="文档版本不存在")
+        if not operator.startswith("api_key:"):
+            _require_kb_access(kb, operator, version["kb_id"], required=True)
+        if version["state"] != "approved":
+            raise HTTPException(status_code=409, detail="只有已批准版本才能发布")
+        with _get_doc_lock(version["doc_id"]):
+            chunks = kb["store"].restore_doc_snapshot(version["snapshot"])
+            updated = kb["governance_store"].transition(
+                version_id, "published", actor=operator
+            )
+        kb["audit"].record(
+            user_id=operator, action="publish_doc_version", target=str(version_id)
+        )
+        if updated:
+            result = _public_version(updated)
+            result["chunks"] = chunks
+            return result
+        return {}
+
+    @app.post("/kb/docs/versions/{version_id}/rollback")
+    def kb_rollback_doc_version(
+        version_id: int,
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        kb = _get_kb()
+        operator = _require_kb_supervisor(kb, x_api_key, x_api_token, admin_id)
+        source = kb["governance_store"].get(version_id)
+        if not source or source["state"] != "published":
+            raise HTTPException(status_code=409, detail="只能回滚到已发布版本")
+        if not operator.startswith("api_key:"):
+            _require_kb_access(kb, operator, source["kb_id"], required=True)
+        with _get_doc_lock(source["doc_id"]):
+            chunks = kb["store"].restore_doc_snapshot(source["snapshot"])
+            rolled = kb["governance_store"].create_rollback(version_id, actor=operator)
+        if rolled:
+            result = _public_version(rolled)
+            result["chunks"] = chunks
+        else:
+            result = {}
+        kb["audit"].record(
+            user_id=operator, action="rollback_doc_version", target=str(version_id)
+        )
+        return result
+
+    # ==================== 数据源同步 ====================
+
+    @app.get("/kb/sources")
+    def kb_list_sources(
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        kb = _get_kb()
+        _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+        return {"sources": kb["source_store"].list()}
+
+    @app.post("/kb/sources")
+    def kb_create_source(
+        payload: Dict[str, Any] = Body(...),
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        kb = _get_kb()
+        operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+        kb_id = str(payload.get("kb_id", "default"))
+        try:
+            source = kb["source_store"].create(
+                name=str(payload.get("name", "")),
+                kb_id=kb_id,
+                source_type=str(payload.get("source_type", "file")),
+                location=str(payload.get("location", "")),
+                interval_minutes=int(payload.get("interval_minutes", 60)),
+            )
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        kb["audit"].record(user_id=operator, action="create_source", target=str(source["id"]))
+        return source
+
+    @app.post("/kb/sources/{source_id}/run")
+    def kb_run_source(
+        source_id: int,
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        kb = _get_kb()
+        operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+        source = kb["source_store"].get(source_id)
+        if not source:
+            raise HTTPException(status_code=404, detail="数据源不存在")
+        if not kb["source_store"].claim(source_id):
+            raise HTTPException(status_code=409, detail="数据源正在同步，请稍后重试")
+        source = kb["source_store"].get(source_id) or source
+        try:
+            return _run_source_sync(kb, source, actor=operator)
+        except Exception as exc:
+            kb["source_store"].mark_result(source_id, ok=False, error=str(exc))
+            kb["alert_store"].emit(
+                dedupe_key=f"source-sync-{source_id}", alert_type="source_sync",
+                severity="high", target=str(source_id), message=f"数据源同步失败：{exc}",
+            )
+            raise HTTPException(status_code=400, detail=f"同步失败: {exc}") from exc
+
+    @app.delete("/kb/sources/{source_id}")
+    def kb_delete_source(
+        source_id: int,
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        kb = _get_kb()
+        operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+        removed = kb["source_store"].delete(source_id)
+        kb["audit"].record(user_id=operator, action="delete_source", target=str(source_id))
+        return {"id": source_id, "deleted": removed}
+
+    # ==================== 用户授权长期记忆与保留策略 ====================
+
+    def _memory_owner(
+        kb: dict, x_api_token: str | None, visitor_token: str | None
+    ) -> tuple[str, str | None]:
+        user_id = _resolve_user_id(kb, x_api_token, None)
+        return _conversation_owner_key(kb, user_id, visitor_token, required=True), user_id
+
+    @app.get("/kb/memory")
+    def kb_get_memory(
+        visitor_token: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        kb = _get_kb()
+        owner, _ = _memory_owner(kb, x_api_token, visitor_token)
+        return {
+            "consent": kb["privacy_store"].has_consent(owner),
+            "memories": kb["privacy_store"].list_memory(owner),
+        }
+
+    @app.put("/kb/memory/consent")
+    def kb_set_memory_consent(
+        payload: Dict[str, Any] = Body(...),
+        x_api_token: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        kb = _get_kb()
+        owner, user_id = _memory_owner(kb, x_api_token, payload.get("visitor_token"))
+        enabled = bool(payload.get("enabled"))
+        kb["privacy_store"].set_consent(owner, enabled)
+        kb["audit"].record(
+            user_id=user_id or "visitor", action="memory_consent", target="enabled" if enabled else "disabled"
+        )
+        return {"consent": enabled}
+
+    @app.post("/kb/memory")
+    def kb_set_memory(
+        payload: Dict[str, Any] = Body(...),
+        x_api_token: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        kb = _get_kb()
+        owner, _ = _memory_owner(kb, x_api_token, payload.get("visitor_token"))
+        try:
+            memory = kb["privacy_store"].set_memory(
+                owner,
+                str(payload.get("key", "")),
+                str(payload.get("value", "")),
+                expires_days=int(payload["expires_days"]) if payload.get("expires_days") else None,
+            )
+        except (PermissionError, ValueError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return memory
+
+    @app.delete("/kb/memory/{memory_id}")
+    def kb_delete_memory(
+        memory_id: int,
+        visitor_token: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        kb = _get_kb()
+        owner, _ = _memory_owner(kb, x_api_token, visitor_token)
+        return {"id": memory_id, "deleted": kb["privacy_store"].delete_memory(owner, memory_id)}
+
+    @app.get("/kb/privacy/policy")
+    def kb_get_retention_policy(
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        kb = _get_kb()
+        _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+        return {"policy": kb["privacy_store"].policy()}
+
+    @app.put("/kb/privacy/policy")
+    def kb_update_retention_policy(
+        payload: Dict[str, Any] = Body(...),
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        kb = _get_kb()
+        operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+        try:
+            policy = kb["privacy_store"].update_policy(payload)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        kb["audit"].record(user_id=operator, action="update_retention_policy", target="privacy")
+        return {"policy": policy}
+
+    @app.post("/kb/privacy/cleanup")
+    def kb_run_retention_cleanup(
+        dry_run: bool = Query(default=True),
+        admin_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        from services.kb.privacy import run_retention_cleanup
+
+        kb = _get_kb()
+        operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+        result = run_retention_cleanup(
+            Path(kb["config"].kb_chroma_dir).parent,
+            kb["privacy_store"].policy(),
+            dry_run=dry_run,
+        )
+        if not dry_run:
+            kb["audit"].record(user_id=operator, action="retention_cleanup", target="all", detail=result)
+        return {"dry_run": dry_run, "deleted": result}
+
+    # ==================== 客服 SLA、运营看板与告警 ====================
+
+    @app.put("/kb/agent/availability")
+    def kb_set_agent_availability(
+        available: bool = Body(embed=True),
+        operator_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        kb = _get_kb()
+        operator = _require_kb_agent(kb, x_api_key, x_api_token, operator_id)
+        if operator.startswith("api_key:"):
+            raise HTTPException(status_code=400, detail="运维密钥不能作为坐席上线")
+        kb["auth"].set_agent_available(operator, available)
+        return {"user_id": operator, "available": available}
+
+    @app.put("/kb/agent/conversations/{conv_id}/priority")
+    def kb_set_conversation_priority(
+        conv_id: int,
+        priority: str = Body(embed=True),
+        operator_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        kb = _get_kb()
+        operator = _require_kb_agent(kb, x_api_key, x_api_token, operator_id)
+        _require_agent_conversation_access(kb, operator, conv_id)
+        try:
+            updated = kb["conversation_store"].set_priority(conv_id, priority)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"conversation_id": conv_id, "priority": priority, "updated": updated}
+
+    @app.get("/kb/operations/dashboard")
+    def kb_operations_dashboard(
+        operator_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        kb = _get_kb()
+        _require_kb_supervisor(kb, x_api_key, x_api_token, operator_id)
+        _scan_operational_alerts(kb)
+        return {
+            "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "conversations": kb["conversation_store"].stats(),
+            "tickets": kb["ticket_store"].stats(),
+            "feedback": kb["feedback_store"].stats(),
+            "rag": kb["retrieval_log"].stats(),
+            "open_alerts": kb["alert_store"].count_open(),
+        }
+
+    @app.get("/kb/operations/alerts")
+    def kb_operations_alerts(
+        status: str | None = Query(default=None),
+        operator_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        kb = _get_kb()
+        _require_kb_supervisor(kb, x_api_key, x_api_token, operator_id)
+        _scan_operational_alerts(kb)
+        return {"alerts": kb["alert_store"].list(status=status)}
+
+    @app.post("/kb/operations/alerts/{alert_id}/ack")
+    def kb_ack_alert(
+        alert_id: int,
+        operator_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        kb = _get_kb()
+        operator = _require_kb_supervisor(kb, x_api_key, x_api_token, operator_id)
+        return {"id": alert_id, "acknowledged": kb["alert_store"].acknowledge(alert_id, operator)}
+
+    def _maintenance_loop() -> None:
+        last_cleanup = ""
+        while not _maintenance_stop.wait(60):
+            try:
+                kb = _get_kb()
+                for source in kb["source_store"].claim_due():
+                    try:
+                        _run_source_sync(kb, source, actor="system")
+                    except Exception as exc:
+                        kb["source_store"].mark_result(source["id"], ok=False, error=str(exc))
+                        kb["alert_store"].emit(
+                            dedupe_key=f"source-sync-{source['id']}", alert_type="source_sync",
+                            severity="high", target=str(source["id"]), message=f"数据源同步失败：{exc}",
+                        )
+                _scan_operational_alerts(kb)
+                today = time.strftime("%Y-%m-%d")
+                if today != last_cleanup and (
+                    getattr(_cfg, "app_env", "development").lower() in {"production", "prod"}
+                    or os.getenv("KB_AUTO_RETENTION", "").lower() in {"1", "true", "yes"}
+                ):
+                    from services.kb.privacy import run_retention_cleanup
+
+                    run_retention_cleanup(
+                        Path(kb["config"].kb_chroma_dir).parent,
+                        kb["privacy_store"].policy(),
+                        dry_run=False,
+                    )
+                    last_cleanup = today
+            except Exception as exc:
+                logger.warning("后台维护任务失败（下轮重试）: {}", exc)
+
+    def start_maintenance_worker() -> None:
+        nonlocal _maintenance_thread
+        if _maintenance_thread is None or not _maintenance_thread.is_alive():
+            _maintenance_stop.clear()
+            _maintenance_thread = Thread(
+                target=_maintenance_loop, name="kb-maintenance", daemon=True
+            )
+            _maintenance_thread.start()
+
+    def stop_maintenance_worker() -> None:
+        _maintenance_stop.set()
+
     # ==================== 用户与权限管理（RBAC，P3 §3.4）====================
+
+    @app.get("/kb/me")
+    def kb_current_user(
+        user_id: str | None = Query(default=None),
+        x_api_token: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        kb = _get_kb()
+        resolved = _resolve_user_id(kb, x_api_token, user_id)
+        if not resolved:
+            raise HTTPException(status_code=401, detail="尚未登录")
+        user = kb["auth"].get_user(resolved)
+        if not user:
+            raise HTTPException(status_code=404, detail="用户不存在")
+        return user
 
     @app.post("/kb/users")
     def kb_create_user(
@@ -1449,7 +3169,7 @@ def create_app() -> FastAPI:
             operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
             conn = kb["checkpoint_conn"]
             cur1 = conn.execute("DELETE FROM checkpoints WHERE thread_id=?", (thread_id,))
-            cur2 = conn.execute("DELETE FROM writes WHERE thread_id=?", (thread_id,))
+            conn.execute("DELETE FROM writes WHERE thread_id=?", (thread_id,))
             conn.commit()
             kb["audit"].record(
                 user_id=operator, action="delete_thread", target=thread_id,
@@ -1629,11 +3349,13 @@ def create_app() -> FastAPI:
             # P2：无鉴权端点必须限流（防刷）
             if not _kb_ask_limiter.allow("feedback"):
                 raise HTTPException(status_code=429, detail="反馈过于频繁，请稍后再试")
+            from services.kb.privacy import redact_text
+
             kb_id = str(payload.get("kb_id", "default"))[:64]
-            question = str(payload.get("question", ""))[:500]
-            answer = str(payload.get("answer", ""))[:500]
+            question = redact_text(str(payload.get("question", "")))[:500]
+            answer = redact_text(str(payload.get("answer", "")))[:500]
             rating = 1 if payload.get("rating", 1) else 0
-            comment = str(payload.get("comment", ""))[:500]
+            comment = redact_text(str(payload.get("comment", "")))[:500]
             fid = kb["feedback_store"].record(
                 kb_id=kb_id, question=question, answer=answer, rating=rating, comment=comment,
             )
@@ -1677,8 +3399,19 @@ def create_app() -> FastAPI:
         """待接入池（waiting 会话），客服工作台首页。"""
         try:
             kb = _get_kb()
-            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
-            return {"conversations": kb["conversation_store"].list_by_status("waiting")}
+            operator = _require_kb_agent(kb, x_api_key, x_api_token, admin_id)
+            conversations = kb["conversation_store"].list_by_status("waiting")
+            human = kb["conversation_store"].list_by_status("human")
+            if operator.startswith("api_key:") or kb["auth"].has_role(
+                operator, {"supervisor", "admin"}
+            ):
+                conversations.extend(human)
+            else:
+                conversations.extend(c for c in human if c["agent_id"] == operator)
+            if not operator.startswith("api_key:") and not kb["auth"].is_admin(operator):
+                allowed = set(kb["auth"].get_allowed_kbs(operator))
+                conversations = [c for c in conversations if c["kb_id"] in allowed]
+            return {"conversations": conversations}
         except HTTPException:
             raise
         except Exception as exc:
@@ -1695,9 +3428,8 @@ def create_app() -> FastAPI:
         """坐席领取会话（waiting → human）。"""
         try:
             kb = _get_kb()
-            operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
-            if not kb["conversation_store"].get(conv_id):
-                raise HTTPException(status_code=404, detail="会话不存在")
+            operator = _require_kb_agent(kb, x_api_key, x_api_token, admin_id)
+            _require_agent_conversation_access(kb, operator, conv_id)
             claimed = kb["conversation_store"].claim(conv_id, operator)
             if claimed:
                 kb["audit"].record(user_id=operator, action="agent_claim", target=str(conv_id))
@@ -1719,15 +3451,15 @@ def create_app() -> FastAPI:
         """坐席回复（存 agent 消息，清零未读）。校验会话存在 + 归属 + 状态。"""
         try:
             kb = _get_kb()
-            operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
-            conv = kb["conversation_store"].get(conv_id)
-            if not conv:
-                raise HTTPException(status_code=404, detail="会话不存在")
+            operator = _require_kb_agent(kb, x_api_key, x_api_token, admin_id)
+            conv = _require_agent_conversation_access(kb, operator, conv_id)
             if conv["status"] != "human":
                 raise HTTPException(status_code=409, detail="会话未在人工服务中")
             if conv["agent_id"] and conv["agent_id"] != operator:
                 raise HTTPException(status_code=403, detail="该会话由其他坐席处理")
-            kb["conversation_store"].add_message(conv_id, "agent", content)
+            from services.kb.privacy import redact_text
+
+            kb["conversation_store"].add_message(conv_id, "agent", redact_text(content))
             kb["conversation_store"].mark_read(conv_id)
             kb["audit"].record(user_id=operator, action="agent_reply", target=str(conv_id))
             return {"conversation_id": conv_id, "replied": True}
@@ -1747,9 +3479,8 @@ def create_app() -> FastAPI:
         """结束会话。"""
         try:
             kb = _get_kb()
-            operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
-            if not kb["conversation_store"].get(conv_id):
-                raise HTTPException(status_code=404, detail="会话不存在")
+            operator = _require_kb_agent(kb, x_api_key, x_api_token, admin_id)
+            _require_agent_conversation_access(kb, operator, conv_id)
             kb["conversation_store"].close(conv_id)
             kb["audit"].record(user_id=operator, action="agent_close", target=str(conv_id))
             return {"conversation_id": conv_id, "closed": True}
@@ -1769,7 +3500,8 @@ def create_app() -> FastAPI:
         """会话消息记录（坐席查看）。"""
         try:
             kb = _get_kb()
-            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            operator = _require_kb_agent(kb, x_api_key, x_api_token, admin_id)
+            _require_agent_conversation_access(kb, operator, conv_id)
             return {"messages": kb["conversation_store"].list_messages(conv_id)}
         except HTTPException:
             raise
@@ -1788,9 +3520,8 @@ def create_app() -> FastAPI:
         """会话打标签（如"退款咨询"），便于统计。"""
         try:
             kb = _get_kb()
-            operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
-            if not kb["conversation_store"].get(conv_id):
-                raise HTTPException(status_code=404, detail="会话不存在")
+            operator = _require_kb_agent(kb, x_api_key, x_api_token, admin_id)
+            _require_agent_conversation_access(kb, operator, conv_id)
             kb["conversation_store"].set_tag(conv_id, tag)
             kb["audit"].record(user_id=operator, action="agent_tag", target=str(conv_id))
             return {"conversation_id": conv_id, "tag": tag}
@@ -1802,6 +3533,12 @@ def create_app() -> FastAPI:
 
     # ==================== 工单（第10项）====================
 
+    def _require_ticket_access(kb: dict, operator: str, ticket: dict[str, Any]) -> None:
+        if not operator.startswith("api_key:") and not kb["auth"].can_access(
+            operator, ticket["kb_id"]
+        ):
+            raise HTTPException(status_code=403, detail="无权处理该知识库的工单")
+
     @app.post("/kb/tickets")
     def kb_create_ticket(
         payload: Dict[str, Any] = Body(...),
@@ -1812,16 +3549,28 @@ def create_app() -> FastAPI:
         """建工单（需管理员）。payload: conversation_id 可选, title, description。"""
         try:
             kb = _get_kb()
-            operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            operator = _require_kb_agent(kb, x_api_key, x_api_token, admin_id)
+            conversation_id = payload.get("conversation_id")
+            kb_id = str(payload.get("kb_id", "default"))
+            if conversation_id is not None:
+                conv = _require_agent_conversation_access(kb, operator, int(conversation_id))
+                kb_id = conv["kb_id"]
+            elif not operator.startswith("api_key:"):
+                _require_kb_access(kb, operator, kb_id, required=True)
             ticket = kb["ticket_store"].create(
-                conversation_id=payload.get("conversation_id"),
+                conversation_id=conversation_id,
                 title=payload.get("title", ""),
                 description=payload.get("description", ""),
+                kb_id=kb_id,
+                priority=payload.get("priority", "normal"),
+                due_hours=int(payload.get("due_hours", 24)),
             )
             kb["audit"].record(user_id=operator, action="create_ticket", target=ticket["ticket_no"])
             return ticket
         except HTTPException:
             raise
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:
             logger.error("KB create ticket failed: {}", exc)
             raise HTTPException(status_code=500, detail=f"建单失败: {exc}") from exc
@@ -1836,8 +3585,14 @@ def create_app() -> FastAPI:
         """工单列表（需管理员，可筛状态）。"""
         try:
             kb = _get_kb()
-            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
-            return {"tickets": kb["ticket_store"].list(status=status)}
+            operator = _require_kb_agent(kb, x_api_key, x_api_token, admin_id)
+            tickets = kb["ticket_store"].list(status=status)
+            if not operator.startswith("api_key:"):
+                tickets = [
+                    ticket for ticket in tickets
+                    if kb["auth"].can_access(operator, ticket["kb_id"])
+                ]
+            return {"tickets": tickets}
         except HTTPException:
             raise
         except Exception as exc:
@@ -1854,10 +3609,11 @@ def create_app() -> FastAPI:
         """工单详情（含时间线）。"""
         try:
             kb = _get_kb()
-            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            operator = _require_kb_agent(kb, x_api_key, x_api_token, admin_id)
             ticket = kb["ticket_store"].get(ticket_id)
             if not ticket:
                 raise HTTPException(status_code=404, detail="工单不存在")
+            _require_ticket_access(kb, operator, ticket)
             return ticket
         except HTTPException:
             raise
@@ -1877,7 +3633,11 @@ def create_app() -> FastAPI:
         """变更工单状态（pending/processing/resolved/closed）。"""
         try:
             kb = _get_kb()
-            operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            operator = _require_kb_agent(kb, x_api_key, x_api_token, admin_id)
+            ticket = kb["ticket_store"].get(ticket_id)
+            if not ticket:
+                raise HTTPException(status_code=404, detail="工单不存在")
+            _require_ticket_access(kb, operator, ticket)
             updated = kb["ticket_store"].update_status(ticket_id, status, note)
             if not updated:
                 raise HTTPException(status_code=404, detail="工单不存在")
@@ -1902,7 +3662,21 @@ def create_app() -> FastAPI:
         """指派工单给坐席。"""
         try:
             kb = _get_kb()
-            operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            operator = _require_kb_supervisor(kb, x_api_key, x_api_token, admin_id)
+            ticket = kb["ticket_store"].get(ticket_id)
+            if not ticket:
+                raise HTTPException(status_code=404, detail="工单不存在")
+            _require_ticket_access(kb, operator, ticket)
+            assignee_user = kb["auth"].get_user(assignee)
+            if not assignee_user or not kb["auth"].is_customer_service(assignee):
+                raise HTTPException(status_code=400, detail="指派目标不是有效客服账号")
+            if not kb["auth"].can_access(assignee, ticket["kb_id"]):
+                raise HTTPException(status_code=400, detail="指派目标无权访问该知识库")
+            online_ids = {
+                agent["user_id"] for agent in kb["auth"].available_agents(ticket["kb_id"])
+            }
+            if assignee not in online_ids:
+                raise HTTPException(status_code=409, detail="指派目标当前不在线")
             assigned = kb["ticket_store"].assign(ticket_id, assignee)
             if not assigned:
                 raise HTTPException(status_code=404, detail="工单不存在")
@@ -1927,7 +3701,7 @@ def create_app() -> FastAPI:
         """快捷回复列表（需管理员）。"""
         try:
             kb = _get_kb()
-            _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            _require_kb_agent(kb, x_api_key, x_api_token, admin_id)
             return {"quick_replies": kb["quick_reply_store"].list()}
         except HTTPException:
             raise
@@ -1946,7 +3720,7 @@ def create_app() -> FastAPI:
         """新增快捷回复（需管理员）。"""
         try:
             kb = _get_kb()
-            operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            operator = _require_kb_supervisor(kb, x_api_key, x_api_token, admin_id)
             rid = kb["quick_reply_store"].add(title, content)
             kb["audit"].record(user_id=operator, action="add_quick_reply", target=str(rid))
             return {"id": rid, "title": title}
@@ -1966,7 +3740,7 @@ def create_app() -> FastAPI:
         """删除快捷回复（需管理员）。"""
         try:
             kb = _get_kb()
-            operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
+            operator = _require_kb_supervisor(kb, x_api_key, x_api_token, admin_id)
             removed = kb["quick_reply_store"].delete(reply_id)
             kb["audit"].record(user_id=operator, action="delete_quick_reply", target=str(reply_id))
             return {"id": reply_id, "removed": removed}
@@ -2000,6 +3774,7 @@ def create_app() -> FastAPI:
         kb_id: str = Form(...),
         name: str = Form(...),
         description: str = Form(default=""),
+        visibility: str = Form(default="internal"),
         admin_id: str | None = Query(default=None),
         x_api_token: str | None = Header(default=None),
         x_api_key: str | None = Header(default=None),
@@ -2008,7 +3783,7 @@ def create_app() -> FastAPI:
         try:
             kb = _get_kb()
             operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
-            meta = kb["kb_meta_store"].create(kb_id, name, description)
+            meta = kb["kb_meta_store"].create(kb_id, name, description, visibility)
             kb["audit"].record(user_id=operator, action="create_kb", target=kb_id)
             return meta
         except HTTPException:
@@ -2024,6 +3799,7 @@ def create_app() -> FastAPI:
         kb_id: str,
         name: str | None = Form(default=None),
         description: str | None = Form(default=None),
+        visibility: str | None = Form(default=None),
         admin_id: str | None = Query(default=None),
         x_api_token: str | None = Header(default=None),
         x_api_key: str | None = Header(default=None),
@@ -2032,11 +3808,15 @@ def create_app() -> FastAPI:
         try:
             kb = _get_kb()
             operator = _require_kb_admin(kb, x_api_key, x_api_token, admin_id)
-            kb["kb_meta_store"].update(kb_id, name=name, description=description)
+            kb["kb_meta_store"].update(
+                kb_id, name=name, description=description, visibility=visibility
+            )
             kb["audit"].record(user_id=operator, action="update_kb", target=kb_id)
             return kb["kb_meta_store"].get(kb_id)
         except HTTPException:
             raise
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:
             logger.error("KB update meta failed: {}", exc)
             raise HTTPException(status_code=500, detail=f"改库失败: {exc}") from exc

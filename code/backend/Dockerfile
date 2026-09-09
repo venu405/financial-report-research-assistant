@@ -9,6 +9,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 拷贝源码
 COPY src/ /app/src/
 COPY pyproject.toml /app/
+COPY scripts/ /app/scripts/
+COPY data/ /app/seed_data/
 
 # 数据目录（chroma + checkpoint + users db，由 compose 挂卷持久化）
 RUN mkdir -p /app/data/chroma_data

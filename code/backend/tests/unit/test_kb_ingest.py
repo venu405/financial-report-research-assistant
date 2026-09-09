@@ -5,7 +5,12 @@ import os
 
 import pytest
 
-from services.kb.ingest import build_chunks, chunk_text, parse_document
+from services.kb.ingest import (
+    build_chunks,
+    chunk_text,
+    parse_document,
+    parse_document_structured,
+)
 
 # ---- OCR 相关辅助：依赖/模型缺失时跳过（离线/CI 不硬失败；本机已预热模型缓存则正常跑） ----
 
@@ -77,10 +82,69 @@ def test_build_chunks_metadata(tmp_path):
     assert c.chunk_index == 0
 
 
+def test_legacy_chunk_profile_keeps_rollback_shape(tmp_path):
+    from services.kb.ingest import build_legacy_chunks
+
+    path = tmp_path / "旧版.md"
+    path.write_text("# 第一章\n" + "旧版正文" * 80, encoding="utf-8")
+
+    chunks = build_legacy_chunks(path, doc_id="legacy", chunk_size=120, overlap=20)
+
+    assert len(chunks) > 1
+    assert all(chunk.page_start is None for chunk in chunks)
+    assert all(chunk.section_path == "" for chunk in chunks)
+    assert all(chunk.metadata == {} for chunk in chunks)
+
+
 def test_parse_markdown(tmp_path):
     f = tmp_path / "a.md"
     f.write_text("# 标题\n正文内容", encoding="utf-8")
     assert "标题" in parse_document(f)
+
+
+def test_structured_markdown_keeps_section_path_and_legacy_text(tmp_path):
+    f = tmp_path / "章节.md"
+    f.write_text("# 采购制度\n总则。\n\n## 审批流程\n五万元以上须审批。", encoding="utf-8")
+
+    blocks = parse_document_structured(f)
+
+    assert isinstance(parse_document(f), str)
+    assert blocks[0].section_path == "采购制度"
+    assert blocks[1].section_path == "采购制度 > 审批流程"
+    assert all(block.page_start is None for block in blocks)
+
+
+def test_build_chunks_parent_child_and_neighbor_metadata(tmp_path):
+    f = tmp_path / "父子.md"
+    f.write_text(
+        "# 采购制度\n\n第一段说明采购范围和审批规则。\n\n"
+        "第二段说明采购金额和审批人。\n\n第三段说明例外情况和留痕要求。",
+        encoding="utf-8",
+    )
+
+    chunks = build_chunks(f, doc_id="pc1", parent_chunk_size=80, child_chunk_size=28)
+    parents = [chunk for chunk in chunks if chunk.chunk_type == "parent"]
+    children = [chunk for chunk in chunks if chunk.chunk_type == "child"]
+
+    assert parents and children
+    assert all(child.parent_id for child in children)
+    assert all(any(parent.metadata["chunk_id"] == child.parent_id for parent in parents) for child in children)
+    assert all(chunk.section_path == "采购制度" for chunk in chunks)
+    assert all("chunk_type" in chunk.metadata for chunk in chunks)
+    assert children[0].previous_chunk_id == ""
+    assert children[-1].next_chunk_id == ""
+    assert all("page_start" not in child.metadata for child in children)
+
+
+def test_markdown_table_header_is_kept_when_split():
+    table = "| 字段 | 说明 |\n| --- | --- |\n" + "\n".join(
+        f"| 字段{i} | 这是很长的说明{i} |" for i in range(8)
+    )
+
+    chunks = chunk_text(table, chunk_size=45, overlap=5)
+
+    assert len(chunks) > 1
+    assert all("| 字段 | 说明 |" in chunk for chunk in chunks)
 
 
 # ---- 多类型解析：图片 OCR / 扫描 PDF / 文字 PDF / docx / 不支持类型 ----
@@ -144,6 +208,29 @@ def test_parse_text_pdf(tmp_path, ocr_ready):
     assert "PDF测试" in text
 
 
+def test_pdf_structured_blocks_use_one_based_page_ranges(tmp_path):
+    """文字版 PDF 的结构块保留 1 起始页码，并过滤底部孤立页码。"""
+    import pymupdf
+
+    pdf_path = tmp_path / "pages.pdf"
+    doc = pymupdf.open()
+    for index, body in enumerate(("第一章 采购范围", "第二章 审批流程"), start=1):
+        page = doc.new_page(width=400, height=300)
+        page.insert_text((40, 60), body, fontsize=14)
+        page.insert_text((195, 285), str(index), fontsize=10)
+    doc.save(str(pdf_path))
+    doc.close()
+
+    blocks = parse_document_structured(pdf_path)
+    chunks = build_chunks(pdf_path, doc_id="pages1", chunk_size=100)
+
+    assert [block.page_start for block in blocks] == [1, 2]
+    assert [chunk.page_start for chunk in chunks] == [1]
+    assert [chunk.page_end for chunk in chunks] == [2]
+    assert all(chunk.page == chunk.page_start for chunk in chunks)
+    assert all(chunk.text.strip() not in {"1", "2"} for chunk in chunks)
+
+
 def test_parse_docx_paragraph_and_table(tmp_path):
     """docx：段落 + 表格都被提取（既有能力，补测试）。"""
     import docx
@@ -191,8 +278,9 @@ def test_ocr_local_ok_no_fallback(tmp_path, ocr_ready, monkeypatch):
 
 def test_ocr_empty_local_uses_baidu(tmp_path, ocr_ready, monkeypatch):
     """auto 模式 + 纯白图（本地识别为空）：走百度后备并返回百度结果。"""
-    import services.kb.ocr as ocr
     from PIL import Image
+
+    import services.kb.ocr as ocr
     from services.kb.ocr import ocr_image
 
     p = tmp_path / "blank.png"
@@ -234,8 +322,9 @@ def test_ocr_baidu_error_degrades(tmp_path, ocr_ready, monkeypatch):
 
 def test_ocr_baidu_empty_keeps_empty(tmp_path, ocr_ready, monkeypatch):
     """auto 模式 + 本地空 + 百度空：返回空串（不抛异常）。"""
-    import services.kb.ocr as ocr
     from PIL import Image
+
+    import services.kb.ocr as ocr
     from services.kb.ocr import ocr_image
 
     p = tmp_path / "blank2.png"
@@ -246,8 +335,9 @@ def test_ocr_baidu_empty_keeps_empty(tmp_path, ocr_ready, monkeypatch):
 
 def test_ocr_mode_local_never_calls_baidu(tmp_path, ocr_ready, monkeypatch):
     """mode="local"（默认）：即使配了百度也不调用；空图返回空串。"""
-    import services.kb.ocr as ocr
     from PIL import Image
+
+    import services.kb.ocr as ocr
     from services.kb.ocr import ocr_image
 
     p = tmp_path / "blank_local.png"
@@ -364,8 +454,9 @@ def test_text_looks_bad_empty():
 
 def test_ocr_auto_bad_content_uses_baidu(tmp_path, ocr_ready, monkeypatch):
     """auto 模式：置信度达标但文本疑似潦草/乱码 → 仍触发百度兜底。"""
-    import services.kb.ocr as ocr
     from PIL import Image
+
+    import services.kb.ocr as ocr
     from services.kb.ocr import ocr_image
 
     p = tmp_path / "scrawl.png"
@@ -379,8 +470,9 @@ def test_ocr_auto_bad_content_uses_baidu(tmp_path, ocr_ready, monkeypatch):
 
 def test_ocr_auto_good_content_skips_baidu(tmp_path, ocr_ready, monkeypatch):
     """auto 模式：置信度达标且内容正常 → 直接返回本地结果，不触发百度。"""
-    import services.kb.ocr as ocr
     from PIL import Image
+
+    import services.kb.ocr as ocr
     from services.kb.ocr import ocr_image
 
     p = tmp_path / "good.png"
@@ -391,3 +483,112 @@ def test_ocr_auto_good_content_skips_baidu(tmp_path, ocr_ready, monkeypatch):
     monkeypatch.setattr(ocr, "_fallback_baidu", lambda img: called.append(True) or "百度")
     assert "五万元" in ocr_image(p, mode="auto")
     assert called == [], "内容正常时不应触发百度后备"
+
+
+def test_layout_cleaning_removes_only_bottom_page_number():
+    """底部孤立页码应清除，正文中的数字和非底部序号必须保留。"""
+    from services.kb.ingest import _clean_layout_lines
+
+    lines = [
+        (20, 100, "境内外会计准则下会计数据差异"),
+        (20, 140, "□适用 √不适用"),
+        (20, 200, "营业收入 12 万元"),
+        (20, 980, "12"),
+    ]
+    assert _clean_layout_lines(lines, 1000) == [
+        "境内外会计准则下会计数据差异",
+        "适用：否",
+        "营业收入 12 万元",
+    ]
+
+
+def test_heading_detection_rejects_annual_report_numbers_and_table_cells():
+    """年份、金额、电话和 PDF 页码不能被误判为章节，否则真实年报会碎成短块。"""
+    from services.kb.ingest import _heading_info
+
+    for text in (
+        "2024 年年度报告",
+        "2025 年4 月",
+        "8 / 300",
+        "787,733,705.74",
+        "2.19%",
+        "0.00",
+        "010-53223377",
+        "2024年",
+        "1、这是从 PDF 正文抽取出来且在句号之前意外换行的一段很长说明文字，不应当被当成新的章节标题从上下文里拆开",
+    ):
+        assert _heading_info(text) is None
+
+    assert _heading_info("第一章 采购范围") == (1, "第一章 采购范围")
+    assert _heading_info("一、主要会计数据") == (1, "一、主要会计数据")
+    assert _heading_info("1、报告期主要经营指标") == (1, "1、报告期主要经营指标")
+    assert _heading_info("1.2 风险提示") == (2, "1.2 风险提示")
+
+
+def test_numeric_table_rows_do_not_create_tiny_structured_blocks():
+    """连续数字表格行应留在正文块中，不能一行变成一个 section。"""
+    from services.kb.ingest import _structured_blocks_from_pages
+
+    rows = ["第一章 主要数据"] + [f"{2024 - index}年 {1000000 + index:,}.00" for index in range(40)]
+    blocks = _structured_blocks_from_pages([(1, "\n".join(rows))])
+
+    assert len(blocks) == 1
+    assert blocks[0].section_path == "第一章 主要数据"
+    assert "1,000,039.00" in blocks[0].text
+
+
+def test_adjacent_small_sections_are_packed_to_chunk_size_with_page_span():
+    """真实年报的小标题不能各占一个几十字 chunk，应聚合并保留跨页范围。"""
+    from services.kb.ingest import StructuredBlock, _build_chunk_specs
+
+    blocks = [
+        StructuredBlock(
+            text=f"{index}、小节标题\n" + "经营数据" * 30,
+            page_start=index,
+            page_end=index,
+            section_path=f"年度报告 > 小节{index}",
+        )
+        for index in range(1, 7)
+    ]
+
+    specs = _build_chunk_specs(
+        blocks,
+        chunk_size=500,
+        overlap=50,
+        parent_chunk_size=None,
+        child_chunk_size=None,
+        include_parent_chunks=False,
+    )
+
+    assert len(specs) == 2
+    assert specs[0]["page_start"] == 1
+    assert specs[0]["page_end"] >= 3
+    assert specs[0]["section_path"] == "年度报告"
+    assert all(len(spec["text"]) <= 500 for spec in specs)
+
+
+def test_checkbox_normalization_preserves_decision():
+    """勾选行转成明确结论，供向量检索和模型回答使用。"""
+    from services.kb.ingest import _normalize_checkbox_text
+
+    assert _normalize_checkbox_text("√是 □否") == "结论：是"
+    assert _normalize_checkbox_text("□是 √否") == "结论：否"
+    assert _normalize_checkbox_text("□适用 √不适用") == "适用：否"
+
+
+def test_render_ocr_layout_keeps_table_columns_and_removes_footer():
+    """扫描表格按同一行坐标还原列关系，页脚页码不进入结果。"""
+    from services.kb.ingest import _render_ocr_layout
+    from services.kb.ocr import OCRLine
+
+    lines = [
+        OCRLine("事项", 20, 20, 80, 45),
+        OCRLine("是否", 500, 20, 550, 45),
+        OCRLine("是否适用", 20, 80, 150, 105),
+        OCRLine("□适用 √不适用", 500, 80, 700, 105),
+        OCRLine("12", 350, 950, 370, 975),
+    ]
+    text = _render_ocr_layout(lines, 800, 1000)
+    assert "事项 | 是否" in text
+    assert "是否适用 | 适用：否" in text
+    assert "12" not in text

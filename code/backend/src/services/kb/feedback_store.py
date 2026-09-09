@@ -87,3 +87,16 @@ class FeedbackStore:
             sql += " WHERE rating = 0"
         row = self._conn.execute(sql).fetchone()
         return row[0] if row else 0
+
+    def stats(self) -> dict[str, float | int]:
+        row = self._conn.execute(
+            "SELECT COUNT(*),SUM(CASE WHEN rating=1 THEN 1 ELSE 0 END) FROM feedback"
+        ).fetchone()
+        total = int(row[0] or 0) if row else 0
+        positive = int(row[1] or 0) if row else 0
+        return {
+            "total": total,
+            "positive": positive,
+            "negative": total - positive,
+            "satisfaction_rate": round(positive / total, 4) if total else 0.0,
+        }

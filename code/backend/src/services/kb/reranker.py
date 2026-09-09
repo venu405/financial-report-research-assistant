@@ -19,13 +19,15 @@
 from __future__ import annotations
 
 import logging
+import math
 import re
 from typing import Any, Protocol
 
 logger = logging.getLogger(__name__)
 
-# LLM 重排时每个候选喂给模型的文本长度（截断控 token）
-_RERANK_SNIPPET_LEN = 200
+# 入库分块默认约 800 字。重排必须看到完整分块，否则答案位于分块后半段时会被
+# 稳定打成低分，造成“已经检索到原文却转人工”的假阴性。
+_RERANK_SNIPPET_LEN = 900
 
 
 class Reranker(Protocol):
@@ -71,15 +73,23 @@ class LLMReranker:
     def rerank(
         self, query: str, hits: list[dict[str, Any]], top_n: int
     ) -> list[dict[str, Any]]:
-        if not hits:
+        if not hits or top_n <= 0:
             return []
+        for hit in hits:
+            # 同一个候选可能被门槛重试或重复调用，不能沿用上次的旧分数。
+            hit.pop("rerank_score", None)
         numbered = []
         for i, h in enumerate(hits):
             snippet = (h.get("text") or "").strip().replace("\n", " ")
-            numbered.append(f"[{i}] {snippet[:_RERANK_SNIPPET_LEN]}")
+            metadata = h.get("metadata") or {}
+            title = metadata.get("doc_title") or h.get("doc_title") or "未命名来源"
+            numbered.append(
+                f"[{i}] 来源：{title}\n内容：{snippet[:_RERANK_SNIPPET_LEN]}"
+            )
         prompt = (
             "你是检索结果重排器（Reranker）。根据【问题】给每个候选资料的相关性打分：\n"
             "10=直接回答该问题；7-9=高度相关；4-6=部分相关；1-3=同主题但不相关；0=无关。\n\n"
+            "若问题指定了公司名称或股票代码，而候选来源属于其他公司，必须评为 0。\n"
             f"【问题】{query}\n\n【候选资料】\n" + "\n".join(numbered) + "\n\n"
             "只输出打分结果，格式每行一条：`编号:分数`（如 `0:9`），不要解释。"
         )
@@ -94,7 +104,10 @@ class LLMReranker:
                 hits[idx]["rerank_score"] = s
         # 有分在前（按分降序，同分保持原顺序=稳定排序），无分在后
         scored = [(i, h.get("rerank_score")) for i, h in enumerate(hits)]
-        scored.sort(key=lambda t: (-(t[1] if t[1] is not None else -1), t[0]))
+        # 有效分数优先；同分和未评分候选均按原始顺序，保证稳定排序。
+        scored.sort(
+            key=lambda t: (t[1] is None, -(t[1] if t[1] is not None else 0), t[0])
+        )
         ordered = [hits[i] for i, _ in scored]
         if scores:
             n_scored = sum(1 for h in ordered if h.get("rerank_score") is not None)
@@ -151,30 +164,70 @@ class CrossEncoderReranker:
             self._model = TextCrossEncoder(model_name=self._model_name)
         return self._model
 
+    @staticmethod
+    def _normalize_score(raw: Any) -> float:
+        """把可能为 numpy/无穷值的 logit 稳定映射到 [0, 1]。"""
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            return 0.0
+        if not math.isfinite(value):
+            return 0.0
+        # 分段写法避免极端 logit 触发 math.exp 溢出。
+        if value >= 0:
+            exp_value = math.exp(-value) if value < 709 else 0.0
+            return 1.0 / (1.0 + exp_value)
+        exp_value = math.exp(value) if value > -709 else 0.0
+        return exp_value / (1.0 + exp_value)
+
     def rerank(
         self, query: str, hits: list[dict[str, Any]], top_n: int
     ) -> list[dict[str, Any]]:
-        if not hits:
+        if not hits or top_n <= 0:
             return []
+        for hit in hits:
+            hit.pop("rerank_score", None)
+            hit.pop("rerank_norm", None)
         try:
             model = self._ensure_model()
-            pairs = [(query, (h.get("text") or "")[:512]) for h in hits]
-            raw_scores = list(model.rerank(pairs))
+            documents = [
+                (h.get("text") or "")[:_RERANK_SNIPPET_LEN] for h in hits
+            ]
+            # fastembed 的 TextCrossEncoder 接受 (query, documents)；保留单参数
+            # 兼容形状，便于本地替换轻量测试模型而不改变重排契约。
+            try:
+                raw_scores = list(model.rerank(query, documents))
+            except TypeError:
+                raw_scores = list(model.rerank([(query, text) for text in documents]))
         except Exception as exc:
             logger.warning("cross-encoder 重排失败，降级为原始顺序: %s", exc)
             return hits[:top_n]
 
-        import math
-
         for h, raw in zip(hits, raw_scores):
-            norm = 1.0 / (1.0 + math.exp(-raw))  # sigmoid -> 0-1
+            norm = self._normalize_score(raw)
             h["rerank_norm"] = round(norm, 4)
             h["rerank_score"] = round(norm * 10, 1)
-        ordered = sorted(hits, key=lambda h: h.get("rerank_score", 0.0), reverse=True)
+        ordered = [
+            hit
+            for _, hit in sorted(
+                enumerate(hits),
+                key=lambda item: (
+                    item[1].get("rerank_score") is None,
+                    -(item[1].get("rerank_score") or 0.0),
+                    item[0],
+                ),
+            )
+        ]
         return ordered[:top_n]
 
 
-def build_reranker(mode: str, *, llm=None, model: str = "deepseek-chat") -> Reranker:
+def build_reranker(
+    mode: str,
+    *,
+    llm=None,
+    model: str = "deepseek-chat",
+    crossencoder_model: str | None = None,
+) -> Reranker:
     """工厂：按 KB_RERANK_MODE 构建重排器。非法值/缺依赖统一降级并告警。"""
     if mode == "llm":
         if llm is None:
@@ -185,7 +238,9 @@ def build_reranker(mode: str, *, llm=None, model: str = "deepseek-chat") -> Rera
         try:
             import fastembed  # noqa: F401
 
-            return CrossEncoderReranker()
+            return CrossEncoderReranker(
+                model_name=crossencoder_model or "BAAI/bge-reranker-base"
+            )
         except ImportError:
             logger.warning(
                 "KB_RERANK_MODE=crossencoder 需要 fastembed（pip install fastembed），"

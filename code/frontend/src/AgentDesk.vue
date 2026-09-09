@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from "vue";
+import { computed, nextTick, ref, onMounted, onUnmounted } from "vue";
 import {
   type AgentConversation,
   type AgentMessage,
@@ -13,12 +13,16 @@ import {
   createTicket,
   agentHeaders,
 } from "./services/api";
+import { filterAndSortConversations } from "./services/agent-queue-utils.js";
 
 const baseURL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
-// 鉴权：X-API-Key（ADMIN_API_KEY）或 admin token（kb_ 开头），存 localStorage
-const apiKey = ref(localStorage.getItem("kb_admin_key") || "");
-const adminToken = ref(localStorage.getItem("kb_api_token") || "");
+const credentialKeys = ["kb_api_token", "kb_user_id", "kb_admin_key"] as const;
+credentialKeys.forEach((key) => localStorage.removeItem(key));
+
+// 鉴权：X-API-Key（ADMIN_API_KEY）或 admin token（kb_ 开头），仅保留在当前标签页会话
+const apiKey = ref(sessionStorage.getItem("kb_admin_key") || "");
+const adminToken = ref(sessionStorage.getItem("kb_api_token") || sessionStorage.getItem("kb_user_id") || "");
 
 const queue = ref<AgentConversation[]>([]);
 const active = ref<AgentConversation | null>(null);
@@ -27,15 +31,35 @@ const replyText = ref("");
 const quickReplies = ref<QuickReply[]>([]);
 const err = ref("");
 const info = ref("");
+const kbFilter = ref("all");
+const statusFilter = ref("all");
+const queueSearch = ref("");
+const chatBody = ref<HTMLElement | null>(null);
 
 let pollTimer: number | undefined;
+
+const availableKbs = computed(() =>
+  [...new Set(queue.value.map((conversation) => conversation.kb_id))].sort()
+);
+const waitingCount = computed(() => queue.value.filter((conversation) => conversation.status === "waiting").length);
+const humanCount = computed(() => queue.value.filter((conversation) => conversation.status === "human").length);
+const visibleQueue = computed(() => {
+  return filterAndSortConversations(queue.value, {
+    kb: kbFilter.value,
+    status: statusFilter.value,
+    search: queueSearch.value,
+  });
+});
 
 function hdrs(): Record<string, string> {
   return agentHeaders(apiKey.value, adminToken.value);
 }
 
 function saveKey() {
-  localStorage.setItem("kb_admin_key", apiKey.value);
+  if (apiKey.value) sessionStorage.setItem("kb_admin_key", apiKey.value);
+  else sessionStorage.removeItem("kb_admin_key");
+  if (adminToken.value) sessionStorage.setItem("kb_api_token", adminToken.value);
+  else sessionStorage.removeItem("kb_api_token");
 }
 
 async function loadQueue() {
@@ -52,6 +76,11 @@ async function loadQueue() {
   }
 }
 
+async function pollWorkspace() {
+  await loadQueue();
+  if (active.value) await loadMessages(active.value.id, false);
+}
+
 async function loadQuickReplies() {
   try {
     const data = await listQuickReplies(apiKey.value, adminToken.value);
@@ -63,11 +92,13 @@ async function loadQuickReplies() {
 
 async function openConversation(conv: AgentConversation) {
   try {
-    const claimed = await claimConversation(conv.id, apiKey.value, adminToken.value);
-    if (!claimed.claimed) {
-      info.value = "该会话已被其他坐席领取";
-      loadQueue();
-      return;
+    if (conv.status === "waiting") {
+      const claimed = await claimConversation(conv.id, apiKey.value, adminToken.value);
+      if (!claimed.claimed) {
+        info.value = "该会话已被其他坐席领取";
+        loadQueue();
+        return;
+      }
     }
     active.value = { ...conv, status: "human", agent_id: "me" };
     await loadMessages(conv.id);
@@ -76,10 +107,22 @@ async function openConversation(conv: AgentConversation) {
   }
 }
 
-async function loadMessages(convId: number) {
+async function loadMessages(convId: number, forceScroll = true) {
   try {
     const data = await fetchMessages(convId, apiKey.value, adminToken.value);
-    msgs.value = data.messages || [];
+    const incoming = data.messages || [];
+    const previousLast = msgs.value.at(-1);
+    const incomingLast = incoming.at(-1);
+    const changed = incoming.length !== msgs.value.length
+      || previousLast?.id !== incomingLast?.id
+      || previousLast?.content !== incomingLast?.content;
+    if (changed) {
+      msgs.value = incoming;
+      if (forceScroll || incoming.length > 0) {
+        await nextTick();
+        chatBody.value?.scrollTo({ top: chatBody.value.scrollHeight, behavior: forceScroll ? "auto" : "smooth" });
+      }
+    }
   } catch (e) {
     err.value = `加载消息失败: ${(e as Error).message}`;
   }
@@ -113,7 +156,7 @@ async function endConversation() {
 
 async function makeTicket() {
   if (!active.value) return;
-  const title = window.prompt("工单标题（默认取最近用户问题）", active.value.transfer_reason || "客服工单");
+  const title = window.prompt("核验任务标题（默认取最近用户问题）", active.value.transfer_reason || "财报核验任务");
   if (!title) return;
   try {
     const t = await createTicket(
@@ -134,7 +177,7 @@ function insertQuickReply(qr: QuickReply) {
 onMounted(() => {
   loadQueue();
   loadQuickReplies();
-  pollTimer = window.setInterval(loadQueue, 5000); // 5s 轮询待接入池
+  pollTimer = window.setInterval(pollWorkspace, 3000);
 });
 onUnmounted(() => {
   if (pollTimer) window.clearInterval(pollTimer);
@@ -145,22 +188,39 @@ onUnmounted(() => {
   <div class="agent-desk">
     <!-- 顶部鉴权 -->
     <div class="desk-head">
-      <span class="desk-title">💬 客服工作台</span>
-      <input v-model="apiKey" placeholder="X-API-Key（管理员）" @change="saveKey" />
+      <span class="desk-title">💬 人工核验工作台</span>
+      <input v-model="adminToken" placeholder="运营 Token（kb_ 开头）" @change="saveKey" />
+      <input v-model="apiKey" placeholder="运维密钥（可选）" @change="saveKey" />
       <button class="ghost" @click="loadQueue">刷新</button>
     </div>
     <p v-if="err" class="err">{{ err }}</p>
     <p v-if="info" class="info">{{ info }}</p>
 
+    <div class="queue-tools">
+      <select v-model="kbFilter" aria-label="按知识库筛选">
+        <option value="all">全部知识库</option>
+        <option v-for="kb in availableKbs" :key="kb" :value="kb">{{ kb }}</option>
+      </select>
+      <select v-model="statusFilter" aria-label="按接待状态筛选">
+        <option value="all">全部状态</option>
+        <option value="waiting">待领取</option>
+        <option value="human">服务中</option>
+      </select>
+      <input v-model="queueSearch" placeholder="搜索访客或转接原因" />
+      <span class="queue-summary">待领取 {{ waitingCount }} · 服务中 {{ humanCount }}</span>
+    </div>
+
     <div class="desk-body">
       <!-- 左栏：待接入 / 服务中 -->
       <aside class="queue-panel">
-        <div class="queue-head">待接入（{{ queue.length }}）</div>
-        <div v-if="!queue.length" class="empty">暂无待接入会话</div>
-        <div v-for="c in queue" :key="c.id" class="queue-item" :class="{ active: active?.id === c.id }" @click="openConversation(c)">
+        <div class="queue-head">会话（{{ visibleQueue.length }}）</div>
+        <div v-if="!visibleQueue.length" class="empty">暂无符合条件的会话</div>
+        <div v-for="c in visibleQueue" :key="c.id" class="queue-item" :class="{ active: active?.id === c.id, unread: c.unread_count > 0 }" @click="openConversation(c)">
           <div class="q-visitor">👤 {{ c.visitor_id || "匿名访客" }}</div>
           <div class="q-meta">
             <span class="q-kb">{{ c.kb_id }}</span>
+            <span class="q-status">{{ c.status === "waiting" ? "待领取" : "服务中" }}</span>
+            <span v-if="c.unread_count" class="q-unread">{{ c.unread_count }} 条新消息</span>
             <span class="q-reason">{{ c.transfer_reason || "用户转人工" }}</span>
           </div>
         </div>
@@ -174,7 +234,7 @@ onUnmounted(() => {
             <button class="ghost" @click="makeTicket">＋ 建工单</button>
             <button class="ghost danger" @click="endConversation">结束会话</button>
           </div>
-          <div class="chat-body">
+          <div ref="chatBody" class="chat-body">
             <div v-for="(m, i) in msgs" :key="i" class="msg" :class="m.role">
               <div class="bubble">{{ m.content }}</div>
             </div>
@@ -197,7 +257,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.agent-desk { padding: 16px; }
+.agent-desk { height: calc(100vh - 73px); padding: 16px; box-sizing: border-box; display: flex; flex-direction: column; min-height: 0; }
 .desk-head { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
 .desk-title { font-weight: var(--weight-semibold); font-size: var(--text-lg); }
 .desk-head input { flex: 1; padding: 8px 12px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); font-size: var(--text-sm); }
@@ -207,21 +267,29 @@ onUnmounted(() => {
 .err { color: var(--color-error); font-size: var(--text-sm); }
 .info { color: var(--color-success); font-size: var(--text-sm); }
 
-.desk-body { display: grid; grid-template-columns: 260px 1fr; gap: 16px; min-height: 60vh; }
-.queue-panel { border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; background: var(--color-bg); }
-.queue-head { padding: 12px 16px; font-weight: var(--weight-semibold); border-bottom: 1px solid var(--color-border); }
+.queue-tools { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+.queue-tools select, .queue-tools input { padding: 7px 10px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); background: var(--color-bg); }
+.queue-tools input { min-width: 220px; }
+.queue-summary { margin-left: auto; color: var(--color-charcoal); font-size: var(--text-sm); white-space: nowrap; }
+.desk-body { flex: 1; display: grid; grid-template-columns: 300px 1fr; gap: 16px; min-height: 0; }
+.queue-panel { min-height: 0; border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow-y: auto; background: var(--color-bg); }
+.queue-head { position: sticky; top: 0; z-index: 1; padding: 12px 16px; font-weight: var(--weight-semibold); border-bottom: 1px solid var(--color-border); background: var(--color-bg); }
 .queue-item { padding: 12px 16px; border-bottom: 1px solid var(--color-border-soft); cursor: pointer; transition: background var(--duration-micro) var(--ease); }
 .queue-item:hover { background: var(--color-bg-warm); }
 .queue-item.active { background: var(--color-accent-soft); }
+.queue-item.unread { border-left: 3px solid var(--color-accent); }
 .q-visitor { font-size: var(--text-sm); font-weight: var(--weight-medium); }
-.q-meta { font-size: var(--text-xs); color: var(--color-charcoal); margin-top: 4px; display: flex; gap: 8px; }
+.q-meta { font-size: var(--text-xs); color: var(--color-charcoal); margin-top: 4px; display: flex; gap: 6px; flex-wrap: wrap; }
 .q-kb { background: var(--color-bg-quiet); border-radius: var(--radius-sm); padding: 1px 6px; }
+.q-status { color: var(--color-accent); }
+.q-unread { color: var(--color-error); font-weight: var(--weight-semibold); }
+.q-reason { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .empty { color: var(--color-slate); padding: 24px; text-align: center; font-size: var(--text-sm); }
 
-.chat-panel { border: 1px solid var(--color-border); border-radius: var(--radius-lg); display: flex; flex-direction: column; background: var(--color-bg); overflow: hidden; }
+.chat-panel { min-height: 0; border: 1px solid var(--color-border); border-radius: var(--radius-lg); display: flex; flex-direction: column; background: var(--color-bg); overflow: hidden; }
 .chat-head { padding: 12px 16px; border-bottom: 1px solid var(--color-border); display: flex; gap: 8px; align-items: center; }
 .chat-head span { flex: 1; font-weight: var(--weight-semibold); }
-.chat-body { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; min-height: 300px; background: var(--color-bg-quiet); }
+.chat-body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; background: var(--color-bg-quiet); }
 .msg { display: flex; }
 .msg.user { justify-content: flex-start; }
 .msg.agent { justify-content: flex-end; }
@@ -234,7 +302,15 @@ onUnmounted(() => {
 .qr-label { font-size: var(--text-xs); color: var(--color-charcoal); }
 .qr-chip { background: var(--color-bg-warm); border: 1px solid var(--color-border); border-radius: var(--radius-pill); padding: 4px 10px; font-size: var(--text-xs); cursor: pointer; }
 .qr-chip:hover { background: var(--color-accent-soft); }
-.reply-row { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--color-border); }
+.reply-row { flex-shrink: 0; display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--color-border); background: var(--color-bg); }
 .reply-row input { flex: 1; padding: 8px 12px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); font-size: var(--text-sm); }
 .send { background: var(--color-accent); color: var(--color-bg); border: none; border-radius: var(--radius-md); padding: 0 16px; cursor: pointer; }
+@media (max-width: 900px) {
+  .agent-desk { height: auto; min-height: calc(100vh - 73px); }
+  .queue-tools { flex-wrap: wrap; }
+  .queue-summary { margin-left: 0; }
+  .desk-body { grid-template-columns: 1fr; }
+  .queue-panel { max-height: 280px; }
+  .chat-panel { min-height: 520px; }
+}
 </style>

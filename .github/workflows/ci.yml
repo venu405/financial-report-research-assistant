@@ -7,7 +7,7 @@ on:
     branches: [main, master]
 
 jobs:
-  test:
+  backend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,4 +33,28 @@ jobs:
 
       - name: Lint (ruff)
         working-directory: code/backend
-        run: ruff check src/ || true
+        run: ruff check src tests
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: code/frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: code/frontend
+        run: npm ci
+
+      - name: Run tests
+        working-directory: code/frontend
+        run: npm test
+
+      - name: Build
+        working-directory: code/frontend
+        run: npm run build

@@ -1,25 +1,23 @@
 """测试 mock 层——让测试不依赖真实 API（不花一分钱、毫秒级、可复现）。
 
-设计思想（面试可讲）：
-1. FakeLLM 模拟 LLM 返回：完整响应 / 流式 chunk / 思考 token / 空响应
-2. FakeSearchTool 模拟搜索：固定结果 / 空结果 / 抛异常
-3. 通过依赖注入替换真实实现（conftest 里挂载）
+设计思想：
+1. FakeLLM 模拟知识库问答所需的完整响应和流式 chunk。
+2. FakeEmbedding 提供确定性的本地向量，不触发真实网络请求。
+3. 通过依赖注入替换真实实现（conftest 里挂载）。
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Iterator
+from typing import Any, Iterator
 
 
 class FakeLLM:
-    """模拟 HelloAgentsLLM：支持两种响应策略。
+    """模拟知识库问答使用的 LLM，支持两种响应策略。
 
     策略 1（按序）：responses 列表按调用顺序弹出，弹完用 default 兜底。
     策略 2（按内容路由）：route 字典 {关键字: 响应}，按 prompt 内容匹配返回
-      —— 更接近真实行为（不同 Agent 的 prompt 不同），且不怕调用次数变化。
-      注意：多轮研究的缺口评估（_assess_gap）也走同一工厂，调用次数不固定，
-      所以集成测试应优先用 route 策略。
+      —— 更接近真实行为（问答图不同节点的 prompt 不同），且不怕调用次数变化。
 
-    对齐真实接口（hello_agents/core/llm.py）：
+    对齐问答图使用的接口：
       - invoke(messages, **kwargs) -> str          非流式
       - stream_invoke(messages, **kwargs) -> Iterator[str]  流式
     """
@@ -84,41 +82,6 @@ class FakeLLM:
         if self._responses:
             return self._responses.pop(0)
         return self._default
-
-
-class FakeSearchTool:
-    """模拟 dispatch_search：对齐真实签名 (query, config, loop_count) -> 4 元组。
-
-    真实 dispatch_search 返回 (payload, notices, answer_text, backend)，
-    这里的 run 方法签名兼容它，供 monkeypatch 直接替换。
-    """
-
-    def __init__(
-        self,
-        *,
-        results: list[dict] | None = None,
-        raise_exc: Exception | None = None,
-    ):
-        self._results = results or []
-        self._raise_exc = raise_exc
-        self.call_count = 0
-
-    def run(self, query: str, config=None, loop_count: int = 0) -> tuple[dict, list, None, str]:
-        self.call_count += 1
-        if self._raise_exc:
-            raise self._raise_exc
-        payload = {"results": self._results, "backend": "fake", "answer": None}
-        return payload, [], None, "fake"
-
-
-def make_agent(**kwargs: Any) -> Callable[[], FakeLLM]:
-    """工厂：返回一个生产 FakeLLM 的函数（模拟项目里的 _agent_factory）。"""
-    agent = FakeLLM(**kwargs)
-
-    def factory() -> FakeLLM:
-        return agent
-
-    return factory
 
 
 class FakeEmbedding:

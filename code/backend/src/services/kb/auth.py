@@ -21,16 +21,27 @@
 from __future__ import annotations
 
 import datetime as _dt
+import functools
 import hashlib
 import logging
 import os
 import secrets
 import sqlite3
+import threading
 import uuid
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+def _synchronized(method):
+    """Serialize access to the shared SQLite connection used by the app."""
+    @functools.wraps(method)
+    def wrapped(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+    return wrapped
 
 
 def _new_token() -> str:
@@ -62,10 +73,11 @@ def _default_ttl_days() -> int | None:
 class AuthStore:
     """用户与知识库访问权限（SQLite）。"""
 
-    VALID_ROLES = {"member", "admin", "readonly"}
+    VALID_ROLES = {"member", "admin", "readonly", "agent", "supervisor"}
 
     def __init__(self, db_path: str | Path, token_ttl_days: int | None = None):
         self._ttl_days = _default_ttl_days() if token_ttl_days is None else token_ttl_days
+        self._lock = threading.RLock()
         self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
         # P3：WAL 模式 + busy_timeout，避免并发写时 "database is locked"
         self._conn.execute("PRAGMA journal_mode=WAL")
@@ -86,6 +98,11 @@ class AuthStore:
                 kb_id   TEXT NOT NULL,
                 PRIMARY KEY (user_id, kb_id)
             );
+            CREATE TABLE IF NOT EXISTS agent_presence (
+                user_id TEXT PRIMARY KEY,
+                available INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL
+            );
             """
         )
         self._migrate_schema()
@@ -94,6 +111,7 @@ class AuthStore:
         self._conn.commit()
 
     # ---------- 迁移 ----------
+    @_synchronized
     def _migrate_schema(self) -> None:
         """旧库补列：api_token_hash / token_expires_at（幂等）。"""
         cols = {r[1] for r in self._conn.execute("PRAGMA table_info(users)").fetchall()}
@@ -111,6 +129,7 @@ class AuthStore:
         }:
             self._conn.execute("ALTER TABLE users ADD COLUMN api_token TEXT")
 
+    @_synchronized
     def _migrate_plaintext_tokens(self) -> int:
         """旧库明文 api_token → 哈希迁移（幂等）。明文清空，token 字符串不变。
 
@@ -136,6 +155,7 @@ class AuthStore:
             logger.info("迁移 %d 个用户明文 token 为哈希", migrated)
         return migrated
 
+    @_synchronized
     def _backfill_missing_tokens(self) -> int:
         """无哈希的用户补发新 token（幂等）。返回补发数。"""
         rows = self._conn.execute(
@@ -160,6 +180,7 @@ class AuthStore:
         return exp.isoformat()
 
     # ---------- 用户 ----------
+    @_synchronized
     def create_user(self, name: str, role: str = "member") -> tuple[str, str]:
         """新建用户，返回 (user_id, api_token)。role: member | admin。
 
@@ -178,6 +199,7 @@ class AuthStore:
         logger.info("新建用户 name=%s id=%s role=%s", name, uid, role)
         return uid, token
 
+    @_synchronized
     def bootstrap_admin(self, name: str, token: str) -> str:
         """从环境变量引导首个 admin（生产级 bootstrap 入口，替代裸 POST /kb/users）。
 
@@ -207,6 +229,7 @@ class AuthStore:
         self._conn.commit()
         return uid
 
+    @_synchronized
     def reset_token(self, user_id: str) -> str | None:
         """重置用户 API token（泄露时用）。用户不存在返回 None。
 
@@ -223,6 +246,7 @@ class AuthStore:
         logger.info("重置 API token: user_id=%s", user_id)
         return token
 
+    @_synchronized
     def get_user_by_token(self, token: str | None) -> dict[str, Any] | None:
         """按 API token 反查用户（鉴权入口）。无效/过期 token 返回 None。
 
@@ -249,6 +273,7 @@ class AuthStore:
                 return None
         return self.get_user(uid)
 
+    @_synchronized
     def get_user(self, user_id: str) -> dict[str, Any] | None:
         row = self._conn.execute(
             "SELECT user_id, name, role FROM users WHERE user_id=?", (user_id,)
@@ -262,6 +287,7 @@ class AuthStore:
             "allowed_kbs": self.get_allowed_kbs(user_id),
         }
 
+    @_synchronized
     def list_users(self) -> list[dict[str, Any]]:
         rows = self._conn.execute(
             "SELECT user_id, name, role, created_at FROM users ORDER BY created_at"
@@ -279,6 +305,7 @@ class AuthStore:
             )
         return result
 
+    @_synchronized
     def is_admin(self, user_id: str) -> bool:
         """是否为管理员（admin 全通，可管理用户/角色）。"""
         row = self._conn.execute(
@@ -286,6 +313,45 @@ class AuthStore:
         ).fetchone()
         return row is not None and row[0] == "admin"
 
+    @_synchronized
+    def has_role(self, user_id: str, roles: set[str]) -> bool:
+        """判断用户是否属于任一指定角色。"""
+        return self._get_role(user_id) in roles
+
+    @_synchronized
+    def is_customer_service(self, user_id: str) -> bool:
+        """坐席、主管和管理员可以进入客服工作台。"""
+        return self.has_role(user_id, {"agent", "supervisor", "admin"})
+
+    @_synchronized
+    def set_agent_available(self, user_id: str, available: bool) -> bool:
+        if not self.is_customer_service(user_id):
+            return False
+        self._conn.execute(
+            "INSERT INTO agent_presence(user_id,available,updated_at) VALUES(?,?,?) "
+            "ON CONFLICT(user_id) DO UPDATE SET available=excluded.available,"
+            "updated_at=excluded.updated_at",
+            (user_id, 1 if available else 0, _utc_now_iso()),
+        )
+        self._conn.commit()
+        return True
+
+    @_synchronized
+    def available_agents(self, kb_id: str) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            "SELECT u.user_id,u.name,u.role,p.updated_at FROM users u "
+            "JOIN agent_presence p ON p.user_id=u.user_id AND p.available=1 "
+            "WHERE u.role IN ('agent','supervisor','admin') ORDER BY p.updated_at"
+        ).fetchall()
+        result = []
+        for user_id, name, role, updated_at in rows:
+            if role == "admin" or self.can_access(user_id, kb_id):
+                result.append(
+                    {"user_id": user_id, "name": name, "role": role, "updated_at": updated_at}
+                )
+        return result
+
+    @_synchronized
     def set_role(self, user_id: str, role: str) -> bool:
         """提升/降级用户角色。用户不存在返回 False。"""
         if role not in self.VALID_ROLES:
@@ -297,6 +363,7 @@ class AuthStore:
         return cur.rowcount > 0
 
     # ---------- 权限 ----------
+    @_synchronized
     def grant_access(self, user_id: str, kb_id: str) -> None:
         self._conn.execute(
             "INSERT OR IGNORE INTO kb_access(user_id, kb_id) VALUES(?, ?)",
@@ -304,6 +371,7 @@ class AuthStore:
         )
         self._conn.commit()
 
+    @_synchronized
     def revoke_access(self, user_id: str, kb_id: str) -> int:
         cur = self._conn.execute(
             "DELETE FROM kb_access WHERE user_id=? AND kb_id=?", (user_id, kb_id)
@@ -311,12 +379,14 @@ class AuthStore:
         self._conn.commit()
         return cur.rowcount
 
+    @_synchronized
     def get_allowed_kbs(self, user_id: str) -> list[str]:
         rows = self._conn.execute(
             "SELECT kb_id FROM kb_access WHERE user_id=?", (user_id,)
         ).fetchall()
         return [r[0] for r in rows]
 
+    @_synchronized
     def can_access(self, user_id: str, kb_id: str) -> bool:
         """校验用户是否能访问指定知识库（读权限）。admin 全通。"""
         if self.is_admin(user_id):
@@ -327,6 +397,7 @@ class AuthStore:
         ).fetchone()
         return row is not None
 
+    @_synchronized
     def can_write(self, user_id: str, kb_id: str) -> bool:
         """校验用户是否有指定知识库的写权限（ingest/update/delete）。
 
@@ -337,6 +408,7 @@ class AuthStore:
             return False
         return self.can_access(user_id, kb_id)
 
+    @_synchronized
     def _get_role(self, user_id: str) -> str:
         row = self._conn.execute(
             "SELECT role FROM users WHERE user_id=?", (user_id,)

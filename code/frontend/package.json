@@ -1,10 +1,12 @@
 {
-  "name": "helloagents-deepresearch-frontend",
+  "name": "enterprise-knowledge-frontend",
+  "description": "上市公司年报、半年报等定期报告的智能问答、财务字段核验与原文证据追溯前端",
   "private": true,
   "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "test": "node --test tests/operations-utils.test.mjs",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview"
   },

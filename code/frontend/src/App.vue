@@ -7,12 +7,13 @@
     <main class="main-area">
       <header class="page-head">
         <h1>{{ tabTitle }}</h1>
+        <p>{{ tabDescription }}</p>
       </header>
       <div class="page-body">
         <ChatView v-if="tab === 'chat'" />
+        <CompanyAnalysisView v-else-if="tab === 'analysis'" />
+        <ResearchPlaceholder v-else-if="tab === 'peers'" />
         <DocsView v-else-if="tab === 'docs'" />
-        <AgentDesk v-else-if="tab === 'agent'" />
-        <AdminView v-else-if="tab === 'admin'" />
       </div>
     </main>
   </div>
@@ -23,18 +24,25 @@ import { computed, onMounted, ref } from "vue";
 import Sidebar from "./Sidebar.vue";
 import ChatView from "./ChatView.vue";
 import DocsView from "./DocsView.vue";
-import AdminView from "./AdminView.vue";
-import AgentDesk from "./AgentDesk.vue";
+import CompanyAnalysisView from "./CompanyAnalysisView.vue";
+import ResearchPlaceholder from "./ResearchPlaceholder.vue";
 import { initKb } from "./useKbState";
 
 const tab = ref("chat");
 const titles: Record<string, string> = {
-  chat: "对话",
-  docs: "文档",
-  agent: "工作台",
-  admin: "管理",
+  chat: "财报问答",
+  analysis: "公司分析",
+  peers: "同业对比",
+  docs: "报告管理",
 };
 const tabTitle = computed(() => titles[tab.value] || "");
+const descriptions: Record<string, string> = {
+  chat: "围绕上市公司定期报告提问，答案附带原文来源与证据提示。",
+  analysis: "按公司、报告期和指标筛选财报记录，支持证据追溯与带原因的人工修订。",
+  peers: "手动选择 2 至 3 家公司，按统一报告期与报表口径对比可追溯财务指标。",
+  docs: "上传、审核与发布财报研究所需的报告资料。",
+};
+const tabDescription = computed(() => descriptions[tab.value] || "");
 
 onMounted(initKb);
 </script>
@@ -60,6 +68,11 @@ onMounted(initKb);
   margin: 0;
   font-size: var(--text-xl);
   font-weight: var(--weight-semibold);
+}
+.page-head p {
+  margin: 5px 0 0;
+  color: var(--color-charcoal);
+  font-size: var(--text-sm);
 }
 .page-body {
   flex: 1;

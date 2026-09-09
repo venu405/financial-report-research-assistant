@@ -1,0 +1,48 @@
+# ripgrep project search scope
+# Keep application source, tests, plans, and handoff documents searchable.
+
+# External/reference codebases are useful for comparison, but add noise to
+# routine searches in this project. Search them explicitly with `rg -uu`.
+/GitHub同类型项目/
+/mattpocock-skills-zh-CN/
+/reports/
+
+# Large generated experiment and temporary directories.
+**/.rag_eval/
+**/.tmp/
+/.pytest_tmp_backup/
+**/reports/
+
+# Migration evidence summaries remain searchable; individual run artifacts do not.
+/migration-record/**/runs/
+
+# Generated visual and archive artifacts are not useful for text/code search.
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.zip
+*.tar
+*.gz
+
+# Local runtime, corpus, model, database and cache outputs.
+**/.venv/
+**/.venv-docling/
+**/.pytest_cache/
+**/.pytest_tmp*/
+**/.ruff_cache/
+**/.rag_eval/
+**/.tmp/
+**/chroma_data/
+**/data_kb_test/
+**/ocr_review/
+**/backups/
+**/logs/
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/logs-*.txt
+**/*.log
+**/Modelfile*
+**/_upload_*

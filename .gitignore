@@ -17,6 +17,7 @@ code/backend/.env
 
 # KB 本地数据（运行时生成，不入库）
 **/chroma_data/
+code/backend/.rag_state/
 *.db
 *.db-shm
 *.db-wal
@@ -29,12 +30,8 @@ backups/
 logs/
 *.log
 
-# 深度研究笔记（运行时生成，可能含敏感网页抓取内容，禁止入库）
-**/notes/
-
 # 个人学习笔记/项目计划（与代码无关，仅本地保留，禁止入库）
 _归档/
-深度研究项目-*.md
 
 # 上传临时文件
 *_upload_*
@@ -60,3 +57,64 @@ dist/
 # OS
 .DS_Store
 Thumbs.db
+
+# 本地运行与验收产物（保留在恢复盘，不应误提交）
+**/.venv/
+**/.venv-docling/
+**/.pytest_cache/
+**/.pytest_tmp*/
+**/.ruff_cache/
+**/.rag_eval/
+**/.tmp/
+**/chroma_data/
+**/data_kb_test/
+**/ocr_review/
+**/backups/
+**/logs/
+**/logs-*.txt
+**/*.db-shm
+**/*.db-wal
+**/server.*.log
+**/verify-report.json
+**/Modelfile*
+**/_upload_*
+code/backend/*.docx
+
+# 截图、批量诊断和逐次运行报告；仅明确列出的验收证据保留在 Git 视野内
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+**/reports/*.json
+**/reports/*.jsonl
+**/reports/*.trace.jsonl
+**/reports/*.lineage.json
+**/reports/*.runner*.log
+reports/
+# 仅重新纳入公开验收 JSON/lineage；trace 含本地运行日志，继续保持忽略
+!code/backend/reports/
+!code/backend/reports/qdrant-full36-after-commitment-eval-fix-20260906.json
+!code/backend/reports/qdrant-full36-after-commitment-eval-fix-20260906.lineage.json
+!code/backend/reports/qdrant-full36-after-raw-narrative-fix-venv-20260906.json
+!code/backend/reports/qdrant-full36-after-raw-narrative-fix-venv-20260906.lineage.json
+!code/backend/reports/qdrant-targeted2-after-34-fixes-20260906.json
+
+# 本地过程资料（已移至外部恢复目录；恢复后仍不进入公开仓库）
+/migration-record/
+/plans/
+/修改经验-面经/
+/_归档/
+/reports/
+/代码审查报告.md
+/分块质量改造-任务安排.md
+/工作记录.md
+/客服增强改造计划.md
+/聊天框交接文档.md
+/生产加固-修改报告.md
+/收尾四步计划.md
+/项目交接文档*.md
+/知识库管理-交接文档.md
+/知识库管理-完整实施计划表.md
+/Qdrant部署交接文档.md
+/RAG问答准确率修改建议.md

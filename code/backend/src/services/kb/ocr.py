@@ -1,4 +1,4 @@
-"""图片 OCR 服务（RapidOCR 统一版，onnxruntime 引擎）。
+﻿"""图片 OCR 服务（RapidOCR 统一版，onnxruntime 引擎）。
 
 把图片 / 扫描页识别成文字。懒加载单例：onnxruntime session 初始化开销大
 （det/cls/rec 三个模型），只在真正处理图片时才创建，避免污染纯文本入库路径。
@@ -22,6 +22,7 @@ import logging
 import os
 import re
 import threading
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Union
 
@@ -32,6 +33,17 @@ _engine_lock = threading.Lock()
 
 # ocr_image 接受的输入：文件路径 / 图片字节 / numpy 数组（ndarray 未列，避免硬性依赖）
 ImageInput = Union[str, Path, bytes]
+
+@dataclass(frozen=True)
+class OCRLine:
+    """一条 OCR 结果及其文字框坐标（像素）。"""
+
+    text: str
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+    score: float | None = None
 
 
 def get_ocr_engine():
@@ -68,6 +80,29 @@ def ocr_image(image_input: ImageInput, *, mode: str = "local") -> str:
     return _mode_local(image_input)
 
 
+
+def ocr_image_with_layout(image_input: ImageInput) -> list[OCRLine]:
+    """本地 OCR 的版面结果；供扫描 PDF 去除页眉页脚、重建阅读顺序使用。"""
+    try:
+        result = get_ocr_engine()(image_input)
+    except Exception as exc:
+        raise ValueError(f"图片 OCR 识别失败: {exc}") from exc
+    texts = getattr(result, "txts", None)
+    boxes = getattr(result, "boxes", None)
+    scores = getattr(result, "scores", None)
+    texts = [] if texts is None else texts
+    boxes = [] if boxes is None else boxes
+    scores = [] if scores is None else scores
+    lines: list[OCRLine] = []
+    for index, text in enumerate(texts):
+        if not str(text).strip() or index >= len(boxes):
+            continue
+        box = boxes[index]
+        xs = [float(point[0]) for point in box]
+        ys = [float(point[1]) for point in box]
+        score = float(scores[index]) if index < len(scores) else None
+        lines.append(OCRLine(str(text).strip(), min(xs), min(ys), max(xs), max(ys), score))
+    return sorted(lines, key=lambda line: (line.y0, line.x0))
 def _run_local(image_input: ImageInput) -> tuple[str, Any]:
     """本地 RapidOCR 识别，返回 (text, scores)。scores 可能为 None。"""
     engine = get_ocr_engine()

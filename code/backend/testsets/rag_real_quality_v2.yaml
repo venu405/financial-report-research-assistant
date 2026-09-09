@@ -1,0 +1,647 @@
+# 基于仓库真实 cninfo PDF 的 RAG V2 质量题集。
+# 页码均为 PDF 物理页（从 1 开始），expected_* 字段供人工复核和后续 A/B
+# 评测使用；evaluate_quality.py 仍可直接消费 tests/question/expect_* 字段。
+name: rag_real_quality_v2
+version: 2
+kb_id: cninfo_report
+description: >-
+  真实年报与半年报质量集，覆盖公司/年份辨别、表格数字、章节和页码证据、
+  同义改写、跨段上下文、多文档一致性以及无答案拒答。事实只来自仓库内 PDF。
+source_roots:
+  - data_kb_test/cninfo
+  - data_kb_test/cninfo_annual
+
+tests:
+  - id: real_guangdao_2025_h1_notice_dissent
+    category: page_section_evidence
+    kb_id: cninfo_report
+    question: "ST广道2025年半年度报告中，明确表示无法保证报告内容真实、准确、完整的董事和监事分别是谁？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keywords_all: ["杨彬", "周绍鑫", "刘海军", "陈友志"]
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo/ST广道-2025年半年度报告.pdf
+    expected_pages: [3]
+    expected_evidence:
+      - "第一节 重要提示、目录和释义"
+      - "公司董事杨彬、监事周绍鑫、刘海军、陈友志对半年度报告内容存在异议"
+    expected_answer: "董事杨彬；监事周绍鑫、刘海军、陈友志。"
+    tags: [page_evidence, section, people, company_year]
+
+  - id: real_pawa_2024_notice_dissent
+    category: page_section_evidence
+    kb_id: cninfo_report
+    question: "浙江帕瓦新能源股份有限公司2024年年报中，哪两名董事无法保证报告内容的真实性、准确性和完整性？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keywords_all: ["邓超", "凌敏"]
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo_annual/帕瓦股份-浙江帕瓦新能源股份有限公司2024年年度报告.pdf
+    expected_pages: [2]
+    expected_evidence:
+      - "重要提示"
+      - "邓超、凌敏董事无法保证本报告内容的真实性、准确性和完整性"
+    expected_answer: "邓超、凌敏。"
+    tags: [page_evidence, section, people, company_year]
+
+  - id: real_yuancheng_2024_delisting_warning_numbers
+    category: page_section_evidence
+    kb_id: cninfo_report
+    question: "元成环境2024年年报披露的归属于母公司的净利润和营业收入分别是多少？这触发了什么风险？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keywords_all: ["-325,030,861.71", "145,839,584.29", "退市风险警示"]
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo_annual/ST元成-元成环境股份有限公司2024年年度报告.pdf
+    expected_pages: [3]
+    expected_evidence:
+      - "归属于母公司的净利润为-325,030,861.71元"
+      - "营业收入145,839,584.29元"
+      - "股票将被实施退市风险警示"
+    expected_answer: "归属于母公司的净利润为-325,030,861.71元，营业收入为145,839,584.29元；报告披露将实施退市风险警示。"
+    tags: [page_evidence, numeric, adjacent_context, company_year]
+
+  - id: real_jinzhou_port_2025_plan_not_promise
+    category: page_section_evidence
+    kb_id: cninfo_report
+    question: "锦州港2024年年报披露的2025年经营计划中，计划营业收入是多少？该计划是否构成业绩承诺？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keywords_all: ["17.21亿元", "不构成对投资者的业绩承诺"]
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo_annual/ST锦港-锦州港股份有限公司2024年年度报告.pdf
+    expected_pages: [25]
+    expected_evidence:
+      - "公司拟定2025年度计划实现营业收入17.21亿元"
+      - "上述经营计划并不构成公司对投资者的业绩承诺"
+    expected_answer: "计划营业收入为17.21亿元；报告明确说明该经营计划不构成对投资者的业绩承诺。"
+    tags: [page_evidence, section, plan, refusal_boundary]
+
+  - id: real_guangdao_2025_h1_revenue
+    category: numeric_table
+    kb_id: cninfo_report
+    question: "ST广道2025年上半年营业收入是多少？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keyword: "23,357,748.41"
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo/ST广道-2025年半年度报告.pdf
+    expected_pages: [8]
+    expected_evidence:
+      - "第三节 会计数据和经营情况"
+      - "营业收入 23,357,748.41"
+    expected_answer: "2025年上半年营业收入为23,357,748.41元。"
+    tags: [numeric, table, company_year]
+
+  - id: real_huluwa_2025_h1_revenue
+    category: numeric_table
+    kb_id: cninfo_report
+    question: "海南葫芦娃药业集团2025年上半年营业收入具体是多少？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keyword: "507,670,912.42"
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo/ST葫芦娃-海南葫芦娃药业集团股份有限公司2025年半年度报告.pdf
+    expected_pages: [5]
+    expected_evidence:
+      - "主要会计数据"
+      - "营业收入 507,670,912.42"
+    expected_answer: "2025年上半年营业收入为507,670,912.42元。"
+    tags: [numeric, table, company_year]
+
+  - id: real_yitai_2025_h1_revenue
+    category: numeric_table
+    kb_id: cninfo_report
+    question: "内蒙古伊泰煤炭股份有限公司2025年上半年营业收入是多少？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keyword: "20,774,218,376.59"
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo/伊泰Ｂ股-内蒙古伊泰煤炭股份有限公司2025年半年度报告.pdf
+    expected_pages: [6]
+    expected_evidence:
+      - "主要会计数据"
+      - "营业收入 20,774,218,376.59"
+    expected_answer: "2025年上半年营业收入为20,774,218,376.59元。"
+    tags: [numeric, table, large_number, company_year]
+
+  - id: real_yitai_2025_h1_operating_cash
+    category: numeric_table
+    kb_id: cninfo_report
+    question: "伊泰煤炭2025年上半年经营活动产生的现金流量净额是多少？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keyword: "3,898,863,782.71"
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo/伊泰Ｂ股-内蒙古伊泰煤炭股份有限公司2025年半年度报告.pdf
+    expected_pages: [6]
+    expected_evidence:
+      - "经营活动产生的现金流量净额 3,898,863,782.71"
+    expected_answer: "2025年上半年经营活动产生的现金流量净额为3,898,863,782.71元。"
+    tags: [numeric, table, cash_flow, company_year]
+
+  - id: real_shenlian_2025_h1_revenue
+    category: numeric_table
+    kb_id: cninfo_report
+    question: "申联生物2025年上半年营业收入是多少？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keyword: "121,725,138.28"
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo/申联生物-申联生物医药（上海）股份有限公司2025年半年度报告.pdf
+    expected_pages: [7]
+    expected_evidence:
+      - "主要会计数据"
+      - "营业收入 121,725,138.28"
+    expected_answer: "2025年上半年营业收入为121,725,138.28元。"
+    tags: [numeric, table, company_year]
+
+  - id: real_shenlian_2025_h1_operating_cash
+    category: numeric_table
+    kb_id: cninfo_report
+    question: "申联生物2025年上半年经营活动现金净流量是多少？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keyword: "-39,389,053.48"
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo/申联生物-申联生物医药（上海）股份有限公司2025年半年度报告.pdf
+    expected_pages: [7]
+    expected_evidence:
+      - "经营活动产生的现金流量净额 -39,389,053.48"
+    expected_answer: "2025年上半年经营活动产生的现金流量净额为-39,389,053.48元。"
+    tags: [numeric, synonym, cash_flow, company_year]
+
+  - id: real_yutai_2025_h1_revenue
+    category: numeric_table
+    kb_id: cninfo_report
+    question: "裕太微电子2025年上半年营业收入具体是多少？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keyword: "221,828,689.43"
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo/裕太微-2025年半年度报告.pdf
+    expected_pages: [8]
+    expected_evidence:
+      - "公司主要会计数据和财务指标"
+      - "营业收入 221,828,689.43"
+    expected_answer: "2025年上半年营业收入为221,828,689.43元。"
+    tags: [numeric, table, company_year]
+
+  - id: real_huawei_2024_revenue
+    category: numeric_table
+    kb_id: cninfo_report
+    question: "吉林华微电子2024年营业收入是多少？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keyword: "2,057,608,183.78"
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo_annual/ST华微-吉林华微电子股份有限公司2024年年度报告.pdf
+    expected_pages: [6]
+    expected_evidence:
+      - "主要会计数据"
+      - "营业收入 2,057,608,183.78"
+    expected_answer: "2024年营业收入为2,057,608,183.78元。"
+    tags: [numeric, table, company_year]
+
+  - id: real_jiuyou_2024_net_profit
+    category: numeric_table
+    kb_id: cninfo_report
+    question: "湖北九有投资2024年归属于上市公司股东的净利润是多少？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keyword: "20,860,428.16"
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo_annual/ST九有-湖北九有投资股份有限公司2024年年度报告.pdf
+    expected_pages: [6]
+    expected_evidence:
+      - "归属于上市公司股东的净利润 20,860,428.16"
+    expected_answer: "2024年归属于上市公司股东的净利润为20,860,428.16元。"
+    tags: [numeric, table, profit, company_year]
+
+  - id: real_zhongcheng_2024_net_profit
+    category: numeric_table
+    kb_id: cninfo_report
+    question: "青岛中资中程2024年归属于上市公司股东的净利润是多少？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keyword: "-310,302,902.32"
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo_annual/ST中程-2024年年度报告.pdf
+    expected_pages: [11]
+    expected_evidence:
+      - "归属于上市公司股东的净利润（元） -310,302,902.32"
+    expected_answer: "2024年归属于上市公司股东的净利润为-310,302,902.32元。"
+    tags: [numeric, table, negative_number, company_year]
+
+  - id: real_dongshi_2024_revenue
+    category: numeric_table
+    kb_id: cninfo_report
+    question: "ST东时2024年营业收入是多少？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keyword: "807,388,662.39"
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo_annual/ST东时-2024年年度报告.pdf
+    expected_pages: [8]
+    expected_evidence:
+      - "主要会计数据"
+      - "营业收入 807,388,662.39"
+    expected_answer: "2024年营业收入为807,388,662.39元。"
+    tags: [numeric, table, company_year]
+
+  - id: real_furun_2024_revenue
+    category: numeric_table
+    kb_id: cninfo_report
+    question: "ST富润2024年营业收入是多少？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keyword: "134,241,812.75"
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo_annual/ST富润-2024年年度报告.pdf
+    expected_pages: [5]
+    expected_evidence:
+      - "主要会计数据"
+      - "营业收入 134,241,812.75"
+    expected_answer: "2024年营业收入为134,241,812.75元。"
+    tags: [numeric, table, company_year]
+
+  - id: real_kelida_2024_net_profit
+    category: numeric_table
+    kb_id: cninfo_report
+    question: "柯利达2024年归属于上市公司股东的净利润是多少？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keyword: "8,583,076.40"
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo_annual/ST柯利达-柯利达2024年年度报告.pdf
+    expected_pages: [7]
+    expected_evidence:
+      - "归属于上市公司股东的净利润 8,583,076.40"
+    expected_answer: "2024年归属于上市公司股东的净利润为8,583,076.40元。"
+    tags: [numeric, table, profit, company_year]
+
+  - id: real_huawang_2024_net_loss
+    category: numeric_table
+    kb_id: cninfo_report
+    question: "ST花王2024年归属于上市公司股东的净利润是盈利还是亏损？金额是多少？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keywords_all: ["-813,312,289.04"]
+    expect_keywords_any: ["亏损", "净亏损", "为负"]
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo_annual/ST花王-2024年年度报告.pdf
+    expected_pages: [6]
+    expected_evidence:
+      - "归属于上市公司股东的净利润 -813,312,289.04"
+    expected_answer: "为亏损，归属于上市公司股东的净利润为-813,312,289.04元。"
+    tags: [numeric, table, negative_number, company_year]
+
+  - id: real_pengbo_2024_revenue
+    category: numeric_table
+    kb_id: cninfo_report
+    question: "鹏博士2024年营业收入是多少？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keyword: "1,876,694,452.50"
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo_annual/ST鹏博-鹏博士2024年年度报告.pdf
+    expected_pages: [9]
+    expected_evidence:
+      - "主要会计数据"
+      - "营业收入 1,876,694,452.50"
+    expected_answer: "2024年营业收入为1,876,694,452.50元。"
+    tags: [numeric, table, company_year]
+
+  - id: real_longyu_2024_revenue
+    category: numeric_table
+    kb_id: cninfo_report
+    question: "上海龙宇数据2024年营业收入是多少？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keyword: "1,404,920,973.02"
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo_annual/ST龙宇-上海龙宇数据股份有限公司2024年年度报告.pdf
+    expected_pages: [7]
+    expected_evidence:
+      - "主要会计数据"
+      - "营业收入 1,404,920,973.02"
+    expected_answer: "2024年营业收入为1,404,920,973.02元。"
+    tags: [numeric, table, company_year]
+
+  - id: real_zhongguohe_2024_total_revenue_synonym
+    category: synonym_rewrite
+    kb_id: cninfo_report
+    question: "中国核建2024年年报经营情况概述中的营业总收入是多少？不要回答归属于上市公司股东的净利润。"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keyword: "1135.41亿元"
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo_annual/中国核建-中国核建2024年年度报告.pdf
+    expected_pages: [13]
+    expected_evidence:
+      - "营业总收入1135.41亿元"
+      - "归属于上市公司股东的净利润20.64亿元"
+    expected_answer: "营业总收入为1135.41亿元（主要会计数据表对应营业收入113,541,282,968.02元）。"
+    tags: [synonym, numeric, section, distractor]
+
+  - id: real_gree_2023_core_table_fields
+    category: numeric_table
+    kb_id: cninfo_report
+    question: "格力电器2023年年报主要会计数据中，营业收入、归母净利润、经营活动现金流量净额和基本每股收益分别是多少？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keywords_all: ["203,979,266,387.09", "29,017,387,604.18", "56,398,426,354.17", "5.22"]
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo_annual/格力电器-2023年年度报告.pdf
+    expected_pages: [7]
+    expected_evidence:
+      - "营业收入（元） 203,979,266,387.09"
+      - "归属于上市公司股东的净利润（元） 29,017,387,604.18"
+      - "经营活动产生的现金流量净额（元） 56,398,426,354.17"
+      - "基本每股收益（元/股） 5.22"
+    expected_answer: "营业收入203,979,266,387.09元；归母净利润29,017,387,604.18元；经营活动产生的现金流量净额56,398,426,354.17元；基本每股收益5.22元/股。"
+    tags: [numeric, table, multiple_fields, adjacent_context]
+
+  - id: real_shenlian_2025_h1_rnd_ratio_synonym
+    category: synonym_rewrite
+    kb_id: cninfo_report
+    question: "申联生物2025年上半年研发投入占营业收入的比例是多少？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keyword: "22.32"
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo/申联生物-申联生物医药（上海）股份有限公司2025年半年度报告.pdf
+    expected_pages: [7]
+    expected_evidence:
+      - "研发投入占营业收入的比例（%） 22.32"
+    expected_answer: "2025年上半年研发投入占营业收入的比例为22.32%。"
+    tags: [synonym, numeric, table, company_year]
+
+  - id: real_gree_2023_rd_expense_synonym
+    category: synonym_rewrite
+    kb_id: cninfo_report
+    question: "格力电器2023年年报中的研发费用金额是多少？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keyword: "6,762,136,262.23"
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo_annual/格力电器-2023年年度报告.pdf
+    expected_pages: [26]
+    expected_evidence:
+      - "研发费用 6,762,136,262.23"
+      - "4、研发投入"
+    expected_answer: "2023年研发费用为6,762,136,262.23元。"
+    tags: [synonym, numeric, section, company_year]
+
+  - id: real_furun_2024_adjusted_revenue_synonym
+    category: synonym_rewrite
+    kb_id: cninfo_report
+    question: "ST富润2024年扣除与主营业务无关及不具备商业实质的收入后，营业收入是多少？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keyword: "110,682,912.05"
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo_annual/ST富润-2024年年度报告.pdf
+    expected_pages: [5]
+    expected_evidence:
+      - "扣除与主营业务无关的业务收入和不具备商业实质的收入后的营业收入 110,682,912.05"
+    expected_answer: "扣除相关收入后的营业收入为110,682,912.05元。"
+    tags: [synonym, numeric, table, distinction]
+
+  - id: real_huluwa_2025_h1_revenue_reason
+    category: adjacent_context
+    kb_id: cninfo_report
+    question: "海南葫芦娃2025年上半年营业收入同比下降42.89%的主要原因是什么？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keywords_all: ["呼吸系统用药销售额减少", "营业收入较上年同期下降42.89%"]
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo/ST葫芦娃-海南葫芦娃药业集团股份有限公司2025年半年度报告.pdf
+    expected_pages: [6]
+    expected_evidence:
+      - "营业收入较上年同期下降42.89%，主要系本报告期内呼吸系统用药销售额减少所致"
+    expected_answer: "主要系本报告期内呼吸系统用药销售额减少所致。"
+    tags: [adjacent_context, section, cause_effect, company_year]
+
+  - id: real_yutai_2025_h1_revenue_reason
+    category: adjacent_context
+    kb_id: cninfo_report
+    question: "裕太微2025年上半年营业收入同比增长43.41%，报告披露的主要原因是什么？"
+    expect_answerable: true
+    expect_keywords_all: ["半导体市场延续增长态势", "2.5G", "销售放量增长"]
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo/裕太微-2025年半年度报告.pdf
+    expected_pages: [8]
+    expected_evidence:
+      - "受半导体市场延续增长态势和公司2.5G网通以太网物理层芯片等产品持续销售放量增长影响"
+    expected_answer: "主要受半导体市场延续增长，以及2.5G网通以太网物理层芯片等产品持续销售放量增长影响。"
+    tags: [adjacent_context, cause_effect, synonym, company_year]
+
+  - id: real_huawei_2024_profit_reason
+    category: adjacent_context
+    kb_id: cninfo_report
+    question: "吉林华微电子2024年归属于上市公司股东的净利润增加，年报披露的主要原因是什么？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keywords_all: ["IPM", "销售订单增加", "销售收入上涨"]
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo_annual/ST华微-吉林华微电子股份有限公司2024年年度报告.pdf
+    expected_pages: [7]
+    expected_evidence:
+      - "归属于上市公司股东的净利润增加原因主要系报告期内IPM等产品销售订单增加，销售收入上涨"
+    expected_answer: "主要系报告期内IPM等产品销售订单增加、销售收入上涨，毛利额增加。"
+    tags: [adjacent_context, cause_effect, section, company_year]
+
+  - id: real_haiyue_2024_revenue_and_rd_cross_page
+    category: adjacent_context
+    kb_id: cninfo_report
+    question: "海越能源2024年营业收入和研发投入合计分别是多少？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keywords_all: ["1,482,763,229.80", "10,639,426.95"]
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo_annual/ST海越-海越能源2024年年度报告.pdf
+    expected_pages: [6, 17]
+    expected_evidence:
+      - "营业收入 1,482,763,229.80"
+      - "研发投入合计 10,639,426.95"
+    expected_answer: "营业收入为1,482,763,229.80元，研发投入合计为10,639,426.95元。"
+    tags: [adjacent_context, cross_page, numeric, section]
+
+  - id: real_pawa_full_summary_consistency
+    category: multi_document_conflict
+    kb_id: cninfo_report
+    question: "帕瓦2024年年报及年报摘要都列出的报告期营业收入和归母净利润分别是多少？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keywords_all: ["948,565,984.05", "-726,501,484.36"]
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo_annual/帕瓦股份-浙江帕瓦新能源股份有限公司2024年年度报告.pdf
+      - data_kb_test/cninfo_annual/帕瓦股份-浙江帕瓦新能源股份有限公司2024年年度报告摘要.pdf
+    expected_pages: [8, 11]
+    expected_evidence:
+      - "全文主要会计数据表：营业收入948,565,984.05元、归母净利润-726,501,484.36元"
+      - "摘要主要会计数据表重复列出相同两项数值"
+    expected_answer: "营业收入为948,565,984.05元，归属于上市公司股东的净利润为-726,501,484.36元；全文与摘要一致。"
+    tags: [multi_document, consistency, summary_full, numeric]
+
+  - id: real_guangdao_full_summary_consistency
+    category: multi_document_conflict
+    kb_id: cninfo_report
+    question: "ST广道2025年半年度报告全文和摘要都列出的本报告期营业收入与归母净利润分别是多少？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keywords_all: ["23,357,748.41", "-20,631,376.11"]
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo/ST广道-2025年半年度报告.pdf
+      - data_kb_test/cninfo/ST广道-2025年半年度报告摘要.pdf
+    expected_pages: [8, 4]
+    expected_evidence:
+      - "全文主要会计数据表列出营业收入23,357,748.41元和归母净利润-20,631,376.11元"
+      - "摘要第4页列出相同两项数值"
+    expected_answer: "营业收入为23,357,748.41元，归属于上市公司股东的净利润为-20,631,376.11元；全文和摘要一致。"
+    tags: [multi_document, consistency, summary_full, numeric]
+
+  - id: real_dongshi_2024_vs_2023_revenue
+    category: company_year_disambiguation
+    kb_id: cninfo_report
+    question: "ST东时年报主要会计数据中，2024年和2023年的营业收入分别是多少？同比变化比例是多少？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keywords_all: ["807,388,662.39", "1,042,430,987.88", "-22.55"]
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo_annual/ST东时-2024年年度报告.pdf
+    expected_pages: [8]
+    expected_evidence:
+      - "营业收入 2024年807,388,662.39、2023年1,042,430,987.88、本期比上年同期增减-22.55%"
+    expected_answer: "2024年营业收入807,388,662.39元，2023年为1,042,430,987.88元，同比下降22.55%。"
+    tags: [company_year, numeric, table, confusion]
+
+  - id: real_yutai_2025_h1_growth_rate
+    category: company_year_disambiguation
+    kb_id: cninfo_report
+    question: "裕太微2025年上半年营业收入相较上年同期增长了多少？"
+    expect_answerable: true
+    expect_intent: kb_question
+    expect_keyword: "43.41%"
+    expect_min_citations: 1
+    expect_inline_citations: true
+    expected_sources:
+      - data_kb_test/cninfo/裕太微-2025年半年度报告.pdf
+    expected_pages: [8]
+    expected_evidence:
+      - "本报告期比上年同期增减(%) 43.41"
+    expected_answer: "相较上年同期增长43.41%。"
+    tags: [company_year, numeric, table, percentage]
+
+  - id: real_missing_st_guangdao_2025_annual
+    category: no_answer_refusal
+    kb_id: cninfo_report
+    question: "ST广道2025年年度报告披露的全年营业收入是多少？"
+    expect_answerable: false
+    expect_escalate: true
+    expect_intent: kb_question
+    expect_max_citations: 0
+    expected_sources: []
+    expected_pages: []
+    expected_evidence:
+      - "data_kb_test/cninfo 中可见的是ST广道2025年半年度报告及摘要，不是2025年年度报告"
+    expected_answer: null
+    answerability_reason: "语料没有ST广道2025年年度报告，不能用半年报数字代替全年数字。"
+    tags: [no_answer, refusal, year_boundary, numeric]
+
+  - id: real_missing_zhongguohe_2025_h1
+    category: no_answer_refusal
+    kb_id: cninfo_report
+    question: "中国核建2025年上半年营业收入是多少？"
+    expect_answerable: false
+    expect_escalate: true
+    expect_intent: kb_question
+    expect_max_citations: 0
+    expected_sources: []
+    expected_pages: []
+    expected_evidence:
+      - "仓库cninfo PDF清单中有中国核建2024年年度报告，但没有中国核建2025年半年度报告"
+    expected_answer: null
+    answerability_reason: "当前语料没有该公司2025年半年度报告，不能从2024年年报推断。"
+    tags: [no_answer, refusal, company_year, corpus_boundary]
+
+  - id: real_missing_report_2026
+    category: no_answer_refusal
+    kb_id: cninfo_report
+    question: "ST广道2026年年度报告中的归母净利润是多少？"
+    expect_answerable: false
+    expect_escalate: true
+    expect_intent: kb_question
+    expect_max_citations: 0
+    expected_sources: []
+    expected_pages: []
+    expected_evidence:
+      - "仓库真实PDF均为2023/2024年度报告或2025年半年报，没有2026年年度报告"
+    expected_answer: null
+    answerability_reason: "题目所问年份的报告不在当前知识库语料中，应明确拒答并说明缺少来源。"
+    tags: [no_answer, refusal, future_year, corpus_boundary]

@@ -1,22 +1,15 @@
 [project]
-name = "helloagents-deep-researcher"
-version = "0.0.1"
-description = "Fully local web research and summarization assistant powered by HelloAgents."
-authors = [
-    { name = "Lance Martin" }
-]
-readme = "README.md"
+name = "enterprise-knowledge-service"
+version = "0.1.0"
+description = "Enterprise knowledge base and customer service assistant."
 license = { text = "MIT" }
 requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.115.0",
-    "hello-agents==0.2.9",
-    "tavily-python>=0.5.0",
-    "python-dotenv==1.0.1",
+    "python-dotenv>=1.2.0,<2.0.0",
     "requests>=2.31.0",
-    "openai>=1.12.0",
+    "openai>=1.12.0,<2.0.0",
     "uvicorn[standard]>=0.32.0",
-    "ddgs>=9.6.1",
     "loguru>=0.7.3",
     # KB（知识库）依赖
     "pydantic>=2.0",
@@ -25,9 +18,15 @@ dependencies = [
     "langgraph>=1.2.0",
     "langgraph-checkpoint-sqlite>=2.0",
     "rank_bm25>=0.2",
+    "fastembed>=0.7.4,<0.9.0",
     "pypdf>=4.0",
     "python-docx>=1.1",
     "python-multipart>=0.0.9",
+    "rapidocr>=3.9.0",
+    "onnxruntime>=1.19",
+    "PyMuPDF>=1.25",
+    "Pillow>=10.0",
+    "openpyxl>=3.1",
 ]
 
 [project.optional-dependencies]
@@ -38,11 +37,11 @@ requires = ["setuptools>=73.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-# 源码平铺在 src/ 下（config.py、agent.py 等顶层模块 + services 包），
+# 源码平铺在 src/ 下（config.py、main.py 两个顶层模块 + services 包），
 # package-dir 把 src 映射为安装根；packages.find 只扫 src，
 # 顶层 .py 文件用 py-modules 显式声明（否则 pip install -e . 报 src/src 不存在）
 package-dir = {"" = "src"}
-py-modules = ["agent", "config", "main", "models", "prompts", "utils"]
+py-modules = ["config", "main"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -55,10 +54,6 @@ lint.select = [
     "E",    # pycodestyle
     "F",    # pyflakes
     "I",    # isort
-    "D",    # pydocstyle
-    "D401", # First line should be in imperative mood
-    "T201",
-    "UP",
 ]
 lint.ignore = [
     "UP006",

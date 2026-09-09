@@ -17,12 +17,14 @@ from typing import Any
 
 import chromadb
 
+from .vector_store_contract import VectorStoreBackend
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_KB_ID = "default"
 
 
-class VectorStore:
+class ChromaVectorStore(VectorStoreBackend):
     """Chroma 持久化向量库（本地目录模式）。单 collection + kb_id 隔离。"""
 
     def __init__(
@@ -81,6 +83,51 @@ class VectorStore:
         with self._seq_lock:
             return self._mutation_seq.get(key, 0)
 
+    _PAGE_SIZE = 500  # 低于 SQLite 999 绑定变量上限，避免大库 .get() 内部 IN 子句超限
+
+    def _get_all(
+        self,
+        *,
+        where: dict[str, Any] | None = None,
+        include: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """分页拉取全部匹配项（大库安全）。
+
+        Chroma 1.x 的 .get() 不带 limit 时会把全部命中 id 放进内部 SQL 的
+        IN 子句，分块上万后触发 SQLite "too many SQL variables"（上限 999）。
+        这里按页（≤500）循环取，规避该上限；接口返回结构与 .get() 对齐。
+        """
+        include = include or []
+        offset = 0
+        all_ids: list[str] = []
+        all_docs: list[str] = []
+        all_metas: list[dict[str, Any]] = []
+        all_embeddings: list[list[float]] = []
+        while True:
+            page = self._collection.get(
+                where=where, include=include, limit=self._PAGE_SIZE, offset=offset
+            )
+            ids = page.get("ids") or []
+            if not ids:
+                break
+            all_ids.extend(ids)
+            all_docs.extend(page.get("documents") or [])
+            all_metas.extend(page.get("metadatas") or [])
+            page_embeddings = page.get("embeddings")
+            if page_embeddings is not None:
+                if hasattr(page_embeddings, "tolist"):
+                    page_embeddings = page_embeddings.tolist()
+                all_embeddings.extend(list(page_embeddings))
+            offset += len(ids)
+            if len(ids) < self._PAGE_SIZE:
+                break
+        return {
+            "ids": all_ids,
+            "documents": all_docs,
+            "metadatas": all_metas,
+            "embeddings": all_embeddings,
+        }
+
     @staticmethod
     def _merge_where(
         where: dict[str, Any] | None, kb_id: str | None
@@ -97,6 +144,25 @@ class VectorStore:
         # 已有 where → 用 $and 组合（Chroma 支持 $and / $or）
         return {"$and": [where, cond]}
 
+    @staticmethod
+    def _chunk_record(
+        chunk_id: str, text: str | None, metadata: dict[str, Any] | None
+    ) -> dict[str, Any]:
+        """把后端记录归一化为 canonical id/payload 与旧兼容字段。"""
+        normalized_text = text or ""
+        normalized_metadata = dict(metadata or {})
+        payload = dict(normalized_metadata)
+        payload["chunk_id"] = chunk_id
+        payload["text"] = normalized_text
+        return {
+            "id": chunk_id,
+            "payload": payload,
+            # 这些字段是当前 retriever/qa_graph 的兼容 seam。
+            "chunk_id": chunk_id,
+            "text": normalized_text,
+            "metadata": normalized_metadata,
+        }
+
     def add_chunks(
         self,
         *,
@@ -108,6 +174,7 @@ class VectorStore:
         chunk_indices: list[int],
         kb_id: str = DEFAULT_KB_ID,
         content_hash: str | None = None,
+        extra_metadata: list[dict[str, Any]] | None = None,
     ) -> list[str]:
         """批量写入分块。返回生成的 chunk_id 列表（供引用溯源）。
 
@@ -115,6 +182,10 @@ class VectorStore:
         """
         if not embeddings:
             return []
+        if len(texts) != len(embeddings) or len(chunk_indices) != len(embeddings):
+            raise ValueError("embeddings、texts、chunk_indices 数量必须一致")
+        if extra_metadata is not None and len(extra_metadata) != len(embeddings):
+            raise ValueError("extra_metadata 必须逐块提供，数量必须与 embeddings 一致")
 
         ids: list[str] = []
         metadatas: list[dict[str, Any]] = []
@@ -128,6 +199,28 @@ class VectorStore:
                 "chunk_index": chunk_indices[i],
                 "kb_id": kb_id,
             }
+            if extra_metadata is not None:
+                for key, value in extra_metadata[i].items():
+                    if not key:
+                        continue
+                    if value is None:
+                        meta[key] = ""
+                    elif isinstance(value, (str, int, float, bool)):
+                        meta[key] = value
+                    else:
+                        # Chroma metadata 只接受标量；字符串化是可逆性最好的
+                        # 兼容处理，也避免把列表直接交给底层后静默失败。
+                        meta[key] = str(value)
+            # 这些字段由本次调用确定，不能被逐块扩展元数据越权覆盖。
+            meta.update(
+                {
+                    "doc_id": doc_id,
+                    "doc_title": doc_title,
+                    "source_type": source_type,
+                    "chunk_index": chunk_indices[i],
+                    "kb_id": kb_id,
+                }
+            )
             if content_hash:
                 meta["content_hash"] = content_hash
             metadatas.append(meta)
@@ -144,12 +237,15 @@ class VectorStore:
         logger.info("Chroma 写入 %d 个分块（doc=%s, kb=%s）", len(ids), doc_id, kb_id)
         return ids
 
-    def find_doc_by_hash(self, content_hash: str) -> str | None:
-        """按内容 hash 查已存在的 doc_id（去重用）。找不到返回 None。"""
+    def find_doc_by_hash(
+        self, content_hash: str, *, kb_id: str | None = None
+    ) -> str | None:
+        """按内容 hash 查已存在的 doc_id；可限定知识库，避免跨库误判重复。"""
         if not content_hash:
             return None
+        where = self._merge_where({"content_hash": content_hash}, kb_id)
         result = self._collection.get(
-            where={"content_hash": content_hash}, include=["metadatas"], limit=1
+            where=where, include=["metadatas"], limit=1
         )
         for meta in result.get("metadatas", []) or []:
             if meta and meta.get("doc_id"):
@@ -187,38 +283,146 @@ class VectorStore:
 
         items = []
         for i, doc in enumerate(docs):
-            items.append(
+            chunk_id = ids[i] if i < len(ids) else ""
+            distance = dists[i] if i < len(dists) else None
+            item = self._chunk_record(
+                chunk_id,
+                doc,
+                metas[i] if i < len(metas) else {},
+            )
+            item.update(
                 {
-                    "chunk_id": ids[i] if i < len(ids) else "",
-                    "text": doc,
-                    "metadata": metas[i] if i < len(metas) else {},
-                    "distance": dists[i] if i < len(dists) else None,
-                    # 余弦距离越小越相似，转成 0-1 相似度分数便于展示
-                    "score": 1 - dists[i] if i < len(dists) else 0,
+                    "distance": distance,
+                    # 余弦距离越小越相似，转成 0-1 相似度分数便于展示。
+                    "score": 1 - distance if distance is not None else 0,
                 }
             )
+            items.append(item)
         return items
 
     def get_doc_ids(self, doc_id: str) -> list[str]:
         """查文档全部 chunk_id（原子更新时算"需要清理的旧块"用）。"""
-        result = self._collection.get(where={"doc_id": doc_id}, include=[])
+        result = self._get_all(where={"doc_id": doc_id})
         return result.get("ids", [])
+
+    def get_related_chunks(
+        self,
+        *,
+        kb_id: str,
+        chunk_id: str | None = None,
+        parent_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """只读获取一个子块所属父块及同父子块。
+
+        kb_id 是必填项，先在该知识库范围内查找，避免通过 chunk_id/parent_id
+        跨库读取上下文。chunk_id 与 parent_id 必须二选一。
+        """
+        if (chunk_id is None) == (parent_id is None):
+            raise ValueError("chunk_id 与 parent_id 必须二选一")
+        if chunk_id is not None:
+            target = self.get_chunk_by_id(chunk_id, kb_id=kb_id)
+            if target is None:
+                return []
+            metadata = target.get("metadata") or {}
+            parent_id = str(metadata.get("parent_id") or "")
+            if not parent_id and metadata.get("chunk_type") == "parent":
+                parent_id = chunk_id
+            if not parent_id:
+                return [target]
+        related = self.all_items(where={"parent_id": parent_id}, kb_id=kb_id)
+        parent = self.get_chunk_by_id(parent_id, kb_id=kb_id)
+        if parent is not None:
+            related.append(parent)
+        deduped = {item["chunk_id"]: item for item in related}
+        return sorted(
+            deduped.values(),
+            key=lambda item: int((item.get("metadata") or {}).get("chunk_index", 0)),
+        )
+
+    def get_chunks_by_parent_id(self, parent_id: str, *, kb_id: str) -> list[dict[str, Any]]:
+        """按父块 ID 获取父块和其子块（只读，强制知识库隔离）。"""
+        return self.get_related_chunks(parent_id=parent_id, kb_id=kb_id)
+
+    def get_chunk_by_id(self, chunk_id: str, *, kb_id: str) -> dict[str, Any] | None:
+        """按 chunk_id 获取单块；kb_id 不匹配时返回 None。"""
+        result = self._collection.get(
+            ids=[chunk_id],
+            where={"kb_id": kb_id},
+            include=["documents", "metadatas"],
+        )
+        ids = result.get("ids") or []
+        if not ids:
+            return None
+        documents = result.get("documents") or []
+        metadatas = result.get("metadatas") or []
+        return self._chunk_record(
+            ids[0],
+            documents[0] if documents else "",
+            metadatas[0] if metadatas else {},
+        )
+
+    def snapshot_doc(self, doc_id: str) -> dict[str, Any]:
+        """导出可恢复的文档向量快照，供版本发布和回滚使用。"""
+        result = self._get_all(
+            where={"doc_id": doc_id},
+            include=["documents", "metadatas", "embeddings"],
+        )
+        embeddings = result.get("embeddings")
+        if hasattr(embeddings, "tolist"):
+            embeddings = embeddings.tolist()
+        return {
+            "ids": list(result.get("ids") or []),
+            "documents": list(result.get("documents") or []),
+            "metadatas": list(result.get("metadatas") or []),
+            "embeddings": list(embeddings or []),
+        }
+
+    def restore_doc_snapshot(self, snapshot: dict[str, Any]) -> int:
+        """原子 upsert 指定快照，并移除当前版本多出的旧分块。"""
+        ids = list(snapshot.get("ids") or [])
+        if not ids:
+            raise ValueError("文档版本快照为空")
+        metadatas = list(snapshot.get("metadatas") or [])
+        doc_id = str((metadatas[0] if metadatas else {}).get("doc_id", ""))
+        if not doc_id:
+            raise ValueError("文档版本快照缺少 doc_id")
+        old_ids = set(self.get_doc_ids(doc_id))
+        self._collection.upsert(
+            ids=ids,
+            embeddings=list(snapshot.get("embeddings") or []),
+            documents=list(snapshot.get("documents") or []),
+            metadatas=metadatas,
+        )
+        stale = list(old_ids - set(ids))
+        if stale:
+            self._collection.delete(ids=stale)
+        kb_id = str((metadatas[0] if metadatas else {}).get("kb_id", "default"))
+        self._bump_seq(kb_id)
+        return len(ids)
 
     def delete_chunk_ids(self, ids: list[str], kb_id: str | None = None) -> int:
         """按 chunk_id 列表删除（更新时清理旧块用）。返回删除数量。
 
-        kb_id 已知时传入（精确 bump 该库 seq）；未知（None）用全局桶兜底。
+        kb_id 已知时既用于精确过滤删除，也用于 bump 该库 seq；未知（None）
+        用全局桶兜底。这样错误的跨库 ID 不会被误删。
         """
         if not ids:
             return 0
-        self._collection.delete(ids=ids)
+        matched = self._collection.get(
+            ids=ids,
+            where=self._merge_where(None, kb_id),
+            include=[],
+        ).get("ids") or []
+        if not matched:
+            return 0
+        self._collection.delete(ids=list(matched))
         self._bump_seq(kb_id)
-        logger.info("Chroma 删除 %d 个分块", len(ids))
-        return len(ids)
+        logger.info("Chroma 删除 %d 个分块", len(matched))
+        return len(matched)
 
     def delete_kb(self, kb_id: str) -> int:
         """删除某知识库的全部 chunk（P2：删库元数据时联动清理 Chroma，避免"复活"旧数据）。"""
-        result = self._collection.get(where={"kb_id": kb_id}, include=[])
+        result = self._get_all(where={"kb_id": kb_id})
         count = len(result.get("ids", []) or [])
         if count:
             self._collection.delete(where={"kb_id": kb_id})
@@ -238,7 +442,7 @@ class VectorStore:
 
     def get_doc_kb_id(self, doc_id: str) -> str | None:
         """查文档所属知识库（删除前鉴权用）。找不到返回 None。"""
-        result = self._collection.get(where={"doc_id": doc_id}, include=["metadatas"])
+        result = self._get_all(where={"doc_id": doc_id}, include=["metadatas"])
         for meta in result.get("metadatas", []) or []:
             if meta and "kb_id" in meta:
                 return meta["kb_id"]
@@ -252,7 +456,7 @@ class VectorStore:
         """
         if kb_id is None:
             return self._collection.count()
-        result = self._collection.get(where={"kb_id": kb_id}, include=[])
+        result = self._get_all(where={"kb_id": kb_id})
         return len(result.get("ids", []) or [])
 
     def all_items(
@@ -266,7 +470,7 @@ class VectorStore:
         merged = self._merge_where(where, kb_id)
         if merged:
             kwargs["where"] = merged
-        result = self._collection.get(**kwargs)
+        result = self._get_all(**kwargs)
 
         ids = result.get("ids", []) or []
         docs = result.get("documents", []) or []
@@ -298,7 +502,7 @@ class VectorStore:
         merged = self._merge_where(None, kb_id)
         if merged:
             kwargs["where"] = merged
-        result = self._collection.get(**kwargs)
+        result = self._get_all(**kwargs)
 
         metas = result.get("metadatas", []) or []
         docs: dict[str, dict[str, Any]] = {}
@@ -317,12 +521,13 @@ class VectorStore:
                     "chunks": 0,
                 }
             docs[did]["chunks"] += 1
-        all_docs = list(docs.values())
+        # Qdrant scroll 不保证与 Chroma 插入顺序相同；契约固定文档列表顺序。
+        all_docs = sorted(docs.values(), key=lambda item: str(item["doc_id"]))
         return all_docs[offset : offset + limit], len(all_docs)
 
     def list_kbs(self) -> list[str]:
         """列出所有出现过的 kb_id（去重）——知识库管理界面用。"""
-        result = self._collection.get(include=["metadatas"])
+        result = self._get_all(include=["metadatas"])
         kbs: set[str] = set()
         for meta in (result.get("metadatas") or []):
             if meta and "kb_id" in meta:
@@ -340,7 +545,7 @@ class VectorStore:
             return 0
         self._migration_done = True  # 无论扫出多少条，本实例不再重复扫
 
-        result = self._collection.get(include=["metadatas"])
+        result = self._get_all(include=["metadatas"])
         ids = result.get("ids", []) or []
         metas = result.get("metadatas", []) or []
         fix_ids: list[str] = []
@@ -356,3 +561,10 @@ class VectorStore:
             self._bump_seq(kb_id)
             logger.info("迁移：给 %d 个历史 chunk 补 kb_id=%s", len(fix_ids), kb_id)
         return len(fix_ids)
+
+
+# 保留原有 import path 与类名；新代码可显式使用 ChromaVectorStore，未来 adapter
+# 只需实现 VectorStoreBackend，不需要改 retriever/qa_graph 的导入。
+VectorStore = ChromaVectorStore
+
+__all__ = ["DEFAULT_KB_ID", "ChromaVectorStore", "VectorStore", "VectorStoreBackend"]

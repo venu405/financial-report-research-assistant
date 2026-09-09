@@ -1,0 +1,4286 @@
+{
+  "reports": [
+    {
+      "base_url": "http://127.0.0.1:18081",
+      "by_category": {
+        "adjacent_context": {
+          "pass_rate": 0.75,
+          "passed": 3,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.125,
+              "evidence_rate_denominator": 4,
+              "hit@1": 1.0,
+              "hit@1_denominator": 4,
+              "hit@3": 1.0,
+              "hit@3_denominator": 4,
+              "hit@5": 1.0,
+              "hit@5_denominator": 4,
+              "page": {
+                "denominator": 4,
+                "hit_rate": 0.5,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 4,
+              "recall@3": 1.0,
+              "recall@3_denominator": 4,
+              "recall@5": 1.0,
+              "recall@5_denominator": 4
+            },
+            "recall_raw": {
+              "evidence_rate": 0.125,
+              "evidence_rate_denominator": 4,
+              "hit@1": 0.5,
+              "hit@1_denominator": 4,
+              "hit@3": 1.0,
+              "hit@3_denominator": 4,
+              "hit@5": 1.0,
+              "hit@5_denominator": 4,
+              "page": {
+                "denominator": 4,
+                "hit_rate": 0.75,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 0.5,
+              "recall@1_denominator": 4,
+              "recall@3": 1.0,
+              "recall@3_denominator": 4,
+              "recall@5": 1.0,
+              "recall@5_denominator": 4
+            }
+          },
+          "total": 4
+        },
+        "company_year_disambiguation": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 2,
+              "hit@1": 1.0,
+              "hit@1_denominator": 2,
+              "hit@3": 1.0,
+              "hit@3_denominator": 2,
+              "hit@5": 1.0,
+              "hit@5_denominator": 2,
+              "page": {
+                "denominator": 2,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 2,
+              "recall@3": 1.0,
+              "recall@3_denominator": 2,
+              "recall@5": 1.0,
+              "recall@5_denominator": 2
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 2,
+              "hit@1": 1.0,
+              "hit@1_denominator": 2,
+              "hit@3": 1.0,
+              "hit@3_denominator": 2,
+              "hit@5": 1.0,
+              "hit@5_denominator": 2,
+              "page": {
+                "denominator": 2,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 2,
+              "recall@3": 1.0,
+              "recall@3_denominator": 2,
+              "recall@5": 1.0,
+              "recall@5_denominator": 2
+            }
+          },
+          "total": 2
+        },
+        "multi_document_conflict": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 2,
+              "hit@1": 1.0,
+              "hit@1_denominator": 2,
+              "hit@3": 1.0,
+              "hit@3_denominator": 2,
+              "hit@5": 1.0,
+              "hit@5_denominator": 2,
+              "page": {
+                "denominator": 2,
+                "hit_rate": 0.5,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 0.5,
+              "recall@1_denominator": 2,
+              "recall@3": 0.75,
+              "recall@3_denominator": 2,
+              "recall@5": 0.75,
+              "recall@5_denominator": 2
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 2,
+              "hit@1": 1.0,
+              "hit@1_denominator": 2,
+              "hit@3": 1.0,
+              "hit@3_denominator": 2,
+              "hit@5": 1.0,
+              "hit@5_denominator": 2,
+              "page": {
+                "denominator": 2,
+                "hit_rate": 0.5,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 0.5,
+              "recall@1_denominator": 2,
+              "recall@3": 0.5,
+              "recall@3_denominator": 2,
+              "recall@5": 0.75,
+              "recall@5_denominator": 2
+            }
+          },
+          "total": 2
+        },
+        "no_answer_refusal": {
+          "pass_rate": 1.0,
+          "passed": 3,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 3,
+              "hit@1": null,
+              "hit@1_denominator": 0,
+              "hit@3": null,
+              "hit@3_denominator": 0,
+              "hit@5": null,
+              "hit@5_denominator": 0,
+              "page": {
+                "denominator": 0,
+                "hit_rate": null,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": null,
+              "recall@1_denominator": 0,
+              "recall@3": null,
+              "recall@3_denominator": 0,
+              "recall@5": null,
+              "recall@5_denominator": 0
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 3,
+              "hit@1": null,
+              "hit@1_denominator": 0,
+              "hit@3": null,
+              "hit@3_denominator": 0,
+              "hit@5": null,
+              "hit@5_denominator": 0,
+              "page": {
+                "denominator": 0,
+                "hit_rate": null,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": null,
+              "recall@1_denominator": 0,
+              "recall@3": null,
+              "recall@3_denominator": 0,
+              "recall@5": null,
+              "recall@5_denominator": 0
+            }
+          },
+          "total": 3
+        },
+        "numeric_table": {
+          "pass_rate": 1.0,
+          "passed": 17,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.8235,
+              "evidence_rate_denominator": 17,
+              "hit@1": 0.8824,
+              "hit@1_denominator": 17,
+              "hit@3": 1.0,
+              "hit@3_denominator": 17,
+              "hit@5": 1.0,
+              "hit@5_denominator": 17,
+              "page": {
+                "denominator": 17,
+                "hit_rate": 0.9412,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 0.8824,
+              "recall@1_denominator": 17,
+              "recall@3": 1.0,
+              "recall@3_denominator": 17,
+              "recall@5": 1.0,
+              "recall@5_denominator": 17
+            },
+            "recall_raw": {
+              "evidence_rate": 0.8824,
+              "evidence_rate_denominator": 17,
+              "hit@1": 0.9412,
+              "hit@1_denominator": 17,
+              "hit@3": 1.0,
+              "hit@3_denominator": 17,
+              "hit@5": 1.0,
+              "hit@5_denominator": 17,
+              "page": {
+                "denominator": 17,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 0.9412,
+              "recall@1_denominator": 17,
+              "recall@3": 1.0,
+              "recall@3_denominator": 17,
+              "recall@5": 1.0,
+              "recall@5_denominator": 17
+            }
+          },
+          "total": 17
+        },
+        "page_section_evidence": {
+          "pass_rate": 1.0,
+          "passed": 4,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "evidence_rate_denominator": 4,
+              "hit@1": 0.75,
+              "hit@1_denominator": 4,
+              "hit@3": 1.0,
+              "hit@3_denominator": 4,
+              "hit@5": 1.0,
+              "hit@5_denominator": 4,
+              "page": {
+                "denominator": 4,
+                "hit_rate": 0.75,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 0.75,
+              "recall@1_denominator": 4,
+              "recall@3": 1.0,
+              "recall@3_denominator": 4,
+              "recall@5": 1.0,
+              "recall@5_denominator": 4
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "evidence_rate_denominator": 4,
+              "hit@1": 0.75,
+              "hit@1_denominator": 4,
+              "hit@3": 0.75,
+              "hit@3_denominator": 4,
+              "hit@5": 0.75,
+              "hit@5_denominator": 4,
+              "page": {
+                "denominator": 4,
+                "hit_rate": 0.75,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 0.75,
+              "recall@1_denominator": 4,
+              "recall@3": 0.75,
+              "recall@3_denominator": 4,
+              "recall@5": 0.75,
+              "recall@5_denominator": 4
+            }
+          },
+          "total": 4
+        },
+        "synonym_rewrite": {
+          "pass_rate": 0.75,
+          "passed": 3,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.625,
+              "evidence_rate_denominator": 4,
+              "hit@1": 1.0,
+              "hit@1_denominator": 4,
+              "hit@3": 1.0,
+              "hit@3_denominator": 4,
+              "hit@5": 1.0,
+              "hit@5_denominator": 4,
+              "page": {
+                "denominator": 4,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 4,
+              "recall@3": 1.0,
+              "recall@3_denominator": 4,
+              "recall@5": 1.0,
+              "recall@5_denominator": 4
+            },
+            "recall_raw": {
+              "evidence_rate": 0.625,
+              "evidence_rate_denominator": 4,
+              "hit@1": 1.0,
+              "hit@1_denominator": 4,
+              "hit@3": 1.0,
+              "hit@3_denominator": 4,
+              "hit@5": 1.0,
+              "hit@5_denominator": 4,
+              "page": {
+                "denominator": 4,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 4,
+              "recall@3": 1.0,
+              "recall@3_denominator": 4,
+              "recall@5": 1.0,
+              "recall@5_denominator": 4
+            }
+          },
+          "total": 4
+        }
+      },
+      "by_tags": {
+        "adjacent_context": {
+          "pass_rate": 0.8333,
+          "passed": 5,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.4167,
+              "evidence_rate_denominator": 6,
+              "hit@1": 1.0,
+              "hit@1_denominator": 6,
+              "hit@3": 1.0,
+              "hit@3_denominator": 6,
+              "hit@5": 1.0,
+              "hit@5_denominator": 6,
+              "page": {
+                "denominator": 6,
+                "hit_rate": 0.6667,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 6,
+              "recall@3": 1.0,
+              "recall@3_denominator": 6,
+              "recall@5": 1.0,
+              "recall@5_denominator": 6
+            },
+            "recall_raw": {
+              "evidence_rate": 0.4167,
+              "evidence_rate_denominator": 6,
+              "hit@1": 0.6667,
+              "hit@1_denominator": 6,
+              "hit@3": 1.0,
+              "hit@3_denominator": 6,
+              "hit@5": 1.0,
+              "hit@5_denominator": 6,
+              "page": {
+                "denominator": 6,
+                "hit_rate": 0.8333,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 0.6667,
+              "recall@1_denominator": 6,
+              "recall@3": 1.0,
+              "recall@3_denominator": 6,
+              "recall@5": 1.0,
+              "recall@5_denominator": 6
+            }
+          },
+          "total": 6
+        },
+        "cash_flow": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "evidence_rate_denominator": 2,
+              "hit@1": 1.0,
+              "hit@1_denominator": 2,
+              "hit@3": 1.0,
+              "hit@3_denominator": 2,
+              "hit@5": 1.0,
+              "hit@5_denominator": 2,
+              "page": {
+                "denominator": 2,
+                "hit_rate": 0.5,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 2,
+              "recall@3": 1.0,
+              "recall@3_denominator": 2,
+              "recall@5": 1.0,
+              "recall@5_denominator": 2
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "evidence_rate_denominator": 2,
+              "hit@1": 1.0,
+              "hit@1_denominator": 2,
+              "hit@3": 1.0,
+              "hit@3_denominator": 2,
+              "hit@5": 1.0,
+              "hit@5_denominator": 2,
+              "page": {
+                "denominator": 2,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 2,
+              "recall@3": 1.0,
+              "recall@3_denominator": 2,
+              "recall@5": 1.0,
+              "recall@5_denominator": 2
+            }
+          },
+          "total": 2
+        },
+        "cause_effect": {
+          "pass_rate": 0.6667,
+          "passed": 2,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 3,
+              "hit@1": 1.0,
+              "hit@1_denominator": 3,
+              "hit@3": 1.0,
+              "hit@3_denominator": 3,
+              "hit@5": 1.0,
+              "hit@5_denominator": 3,
+              "page": {
+                "denominator": 3,
+                "hit_rate": 0.3333,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 3,
+              "recall@3": 1.0,
+              "recall@3_denominator": 3,
+              "recall@5": 1.0,
+              "recall@5_denominator": 3
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 3,
+              "hit@1": 0.6667,
+              "hit@1_denominator": 3,
+              "hit@3": 1.0,
+              "hit@3_denominator": 3,
+              "hit@5": 1.0,
+              "hit@5_denominator": 3,
+              "page": {
+                "denominator": 3,
+                "hit_rate": 0.6667,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 0.6667,
+              "recall@1_denominator": 3,
+              "recall@3": 1.0,
+              "recall@3_denominator": 3,
+              "recall@5": 1.0,
+              "recall@5_denominator": 3
+            }
+          },
+          "total": 3
+        },
+        "company_year": {
+          "pass_rate": 0.963,
+          "passed": 26,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.6481,
+              "evidence_rate_denominator": 27,
+              "hit@1": 0.8846,
+              "hit@1_denominator": 26,
+              "hit@3": 1.0,
+              "hit@3_denominator": 26,
+              "hit@5": 1.0,
+              "hit@5_denominator": 26,
+              "page": {
+                "denominator": 26,
+                "hit_rate": 0.8462,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 0.8846,
+              "recall@1_denominator": 26,
+              "recall@3": 1.0,
+              "recall@3_denominator": 26,
+              "recall@5": 1.0,
+              "recall@5_denominator": 26
+            },
+            "recall_raw": {
+              "evidence_rate": 0.6852,
+              "evidence_rate_denominator": 27,
+              "hit@1": 0.8846,
+              "hit@1_denominator": 26,
+              "hit@3": 0.9615,
+              "hit@3_denominator": 26,
+              "hit@5": 0.9615,
+              "hit@5_denominator": 26,
+              "page": {
+                "denominator": 26,
+                "hit_rate": 0.9231,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 0.8846,
+              "recall@1_denominator": 26,
+              "recall@3": 0.9615,
+              "recall@3_denominator": 26,
+              "recall@5": 0.9615,
+              "recall@5_denominator": 26
+            }
+          },
+          "total": 27
+        },
+        "confusion": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            }
+          },
+          "total": 1
+        },
+        "consistency": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 2,
+              "hit@1": 1.0,
+              "hit@1_denominator": 2,
+              "hit@3": 1.0,
+              "hit@3_denominator": 2,
+              "hit@5": 1.0,
+              "hit@5_denominator": 2,
+              "page": {
+                "denominator": 2,
+                "hit_rate": 0.5,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 0.5,
+              "recall@1_denominator": 2,
+              "recall@3": 0.75,
+              "recall@3_denominator": 2,
+              "recall@5": 0.75,
+              "recall@5_denominator": 2
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 2,
+              "hit@1": 1.0,
+              "hit@1_denominator": 2,
+              "hit@3": 1.0,
+              "hit@3_denominator": 2,
+              "hit@5": 1.0,
+              "hit@5_denominator": 2,
+              "page": {
+                "denominator": 2,
+                "hit_rate": 0.5,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 0.5,
+              "recall@1_denominator": 2,
+              "recall@3": 0.5,
+              "recall@3_denominator": 2,
+              "recall@5": 0.75,
+              "recall@5_denominator": 2
+            }
+          },
+          "total": 2
+        },
+        "corpus_boundary": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 2,
+              "hit@1": null,
+              "hit@1_denominator": 0,
+              "hit@3": null,
+              "hit@3_denominator": 0,
+              "hit@5": null,
+              "hit@5_denominator": 0,
+              "page": {
+                "denominator": 0,
+                "hit_rate": null,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": null,
+              "recall@1_denominator": 0,
+              "recall@3": null,
+              "recall@3_denominator": 0,
+              "recall@5": null,
+              "recall@5_denominator": 0
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 2,
+              "hit@1": null,
+              "hit@1_denominator": 0,
+              "hit@3": null,
+              "hit@3_denominator": 0,
+              "hit@5": null,
+              "hit@5_denominator": 0,
+              "page": {
+                "denominator": 0,
+                "hit_rate": null,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": null,
+              "recall@1_denominator": 0,
+              "recall@3": null,
+              "recall@3_denominator": 0,
+              "recall@5": null,
+              "recall@5_denominator": 0
+            }
+          },
+          "total": 2
+        },
+        "cross_page": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.5,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 0.5,
+              "evidence_rate_denominator": 1,
+              "hit@1": 0.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 0.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            }
+          },
+          "total": 1
+        },
+        "distinction": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            }
+          },
+          "total": 1
+        },
+        "distractor": {
+          "pass_rate": 0.0,
+          "passed": 0,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            }
+          },
+          "total": 1
+        },
+        "future_year": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": null,
+              "hit@1_denominator": 0,
+              "hit@3": null,
+              "hit@3_denominator": 0,
+              "hit@5": null,
+              "hit@5_denominator": 0,
+              "page": {
+                "denominator": 0,
+                "hit_rate": null,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": null,
+              "recall@1_denominator": 0,
+              "recall@3": null,
+              "recall@3_denominator": 0,
+              "recall@5": null,
+              "recall@5_denominator": 0
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": null,
+              "hit@1_denominator": 0,
+              "hit@3": null,
+              "hit@3_denominator": 0,
+              "hit@5": null,
+              "hit@5_denominator": 0,
+              "page": {
+                "denominator": 0,
+                "hit_rate": null,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": null,
+              "recall@1_denominator": 0,
+              "recall@3": null,
+              "recall@3_denominator": 0,
+              "recall@5": null,
+              "recall@5_denominator": 0
+            }
+          },
+          "total": 1
+        },
+        "large_number": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            }
+          },
+          "total": 1
+        },
+        "multi_document": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 2,
+              "hit@1": 1.0,
+              "hit@1_denominator": 2,
+              "hit@3": 1.0,
+              "hit@3_denominator": 2,
+              "hit@5": 1.0,
+              "hit@5_denominator": 2,
+              "page": {
+                "denominator": 2,
+                "hit_rate": 0.5,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 0.5,
+              "recall@1_denominator": 2,
+              "recall@3": 0.75,
+              "recall@3_denominator": 2,
+              "recall@5": 0.75,
+              "recall@5_denominator": 2
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 2,
+              "hit@1": 1.0,
+              "hit@1_denominator": 2,
+              "hit@3": 1.0,
+              "hit@3_denominator": 2,
+              "hit@5": 1.0,
+              "hit@5_denominator": 2,
+              "page": {
+                "denominator": 2,
+                "hit_rate": 0.5,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 0.5,
+              "recall@1_denominator": 2,
+              "recall@3": 0.5,
+              "recall@3_denominator": 2,
+              "recall@5": 0.75,
+              "recall@5_denominator": 2
+            }
+          },
+          "total": 2
+        },
+        "multiple_fields": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            }
+          },
+          "total": 1
+        },
+        "negative_number": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.5,
+              "evidence_rate_denominator": 2,
+              "hit@1": 0.5,
+              "hit@1_denominator": 2,
+              "hit@3": 1.0,
+              "hit@3_denominator": 2,
+              "hit@5": 1.0,
+              "hit@5_denominator": 2,
+              "page": {
+                "denominator": 2,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 0.5,
+              "recall@1_denominator": 2,
+              "recall@3": 1.0,
+              "recall@3_denominator": 2,
+              "recall@5": 1.0,
+              "recall@5_denominator": 2
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "evidence_rate_denominator": 2,
+              "hit@1": 1.0,
+              "hit@1_denominator": 2,
+              "hit@3": 1.0,
+              "hit@3_denominator": 2,
+              "hit@5": 1.0,
+              "hit@5_denominator": 2,
+              "page": {
+                "denominator": 2,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 2,
+              "recall@3": 1.0,
+              "recall@3_denominator": 2,
+              "recall@5": 1.0,
+              "recall@5_denominator": 2
+            }
+          },
+          "total": 2
+        },
+        "no_answer": {
+          "pass_rate": 1.0,
+          "passed": 3,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 3,
+              "hit@1": null,
+              "hit@1_denominator": 0,
+              "hit@3": null,
+              "hit@3_denominator": 0,
+              "hit@5": null,
+              "hit@5_denominator": 0,
+              "page": {
+                "denominator": 0,
+                "hit_rate": null,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": null,
+              "recall@1_denominator": 0,
+              "recall@3": null,
+              "recall@3_denominator": 0,
+              "recall@5": null,
+              "recall@5_denominator": 0
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 3,
+              "hit@1": null,
+              "hit@1_denominator": 0,
+              "hit@3": null,
+              "hit@3_denominator": 0,
+              "hit@5": null,
+              "hit@5_denominator": 0,
+              "page": {
+                "denominator": 0,
+                "hit_rate": null,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": null,
+              "recall@1_denominator": 0,
+              "recall@3": null,
+              "recall@3_denominator": 0,
+              "recall@5": null,
+              "recall@5_denominator": 0
+            }
+          },
+          "total": 3
+        },
+        "numeric": {
+          "pass_rate": 0.9643,
+          "passed": 27,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.6429,
+              "evidence_rate_denominator": 28,
+              "hit@1": 0.9259,
+              "hit@1_denominator": 27,
+              "hit@3": 1.0,
+              "hit@3_denominator": 27,
+              "hit@5": 1.0,
+              "hit@5_denominator": 27,
+              "page": {
+                "denominator": 27,
+                "hit_rate": 0.9259,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 0.8889,
+              "recall@1_denominator": 27,
+              "recall@3": 0.9815,
+              "recall@3_denominator": 27,
+              "recall@5": 0.9815,
+              "recall@5_denominator": 27
+            },
+            "recall_raw": {
+              "evidence_rate": 0.6786,
+              "evidence_rate_denominator": 28,
+              "hit@1": 0.9259,
+              "hit@1_denominator": 27,
+              "hit@3": 1.0,
+              "hit@3_denominator": 27,
+              "hit@5": 1.0,
+              "hit@5_denominator": 27,
+              "page": {
+                "denominator": 27,
+                "hit_rate": 0.963,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 0.8889,
+              "recall@1_denominator": 27,
+              "recall@3": 0.963,
+              "recall@3_denominator": 27,
+              "recall@5": 0.9815,
+              "recall@5_denominator": 27
+            }
+          },
+          "total": 28
+        },
+        "page_evidence": {
+          "pass_rate": 1.0,
+          "passed": 4,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "evidence_rate_denominator": 4,
+              "hit@1": 0.75,
+              "hit@1_denominator": 4,
+              "hit@3": 1.0,
+              "hit@3_denominator": 4,
+              "hit@5": 1.0,
+              "hit@5_denominator": 4,
+              "page": {
+                "denominator": 4,
+                "hit_rate": 0.75,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 0.75,
+              "recall@1_denominator": 4,
+              "recall@3": 1.0,
+              "recall@3_denominator": 4,
+              "recall@5": 1.0,
+              "recall@5_denominator": 4
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "evidence_rate_denominator": 4,
+              "hit@1": 0.75,
+              "hit@1_denominator": 4,
+              "hit@3": 0.75,
+              "hit@3_denominator": 4,
+              "hit@5": 0.75,
+              "hit@5_denominator": 4,
+              "page": {
+                "denominator": 4,
+                "hit_rate": 0.75,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 0.75,
+              "recall@1_denominator": 4,
+              "recall@3": 0.75,
+              "recall@3_denominator": 4,
+              "recall@5": 0.75,
+              "recall@5_denominator": 4
+            }
+          },
+          "total": 4
+        },
+        "people": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "evidence_rate_denominator": 2,
+              "hit@1": 0.5,
+              "hit@1_denominator": 2,
+              "hit@3": 1.0,
+              "hit@3_denominator": 2,
+              "hit@5": 1.0,
+              "hit@5_denominator": 2,
+              "page": {
+                "denominator": 2,
+                "hit_rate": 0.5,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 0.5,
+              "recall@1_denominator": 2,
+              "recall@3": 1.0,
+              "recall@3_denominator": 2,
+              "recall@5": 1.0,
+              "recall@5_denominator": 2
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "evidence_rate_denominator": 2,
+              "hit@1": 0.5,
+              "hit@1_denominator": 2,
+              "hit@3": 0.5,
+              "hit@3_denominator": 2,
+              "hit@5": 0.5,
+              "hit@5_denominator": 2,
+              "page": {
+                "denominator": 2,
+                "hit_rate": 0.5,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 0.5,
+              "recall@1_denominator": 2,
+              "recall@3": 0.5,
+              "recall@3_denominator": 2,
+              "recall@5": 0.5,
+              "recall@5_denominator": 2
+            }
+          },
+          "total": 2
+        },
+        "percentage": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            }
+          },
+          "total": 1
+        },
+        "plan": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            }
+          },
+          "total": 1
+        },
+        "profit": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.5,
+              "evidence_rate_denominator": 2,
+              "hit@1": 1.0,
+              "hit@1_denominator": 2,
+              "hit@3": 1.0,
+              "hit@3_denominator": 2,
+              "hit@5": 1.0,
+              "hit@5_denominator": 2,
+              "page": {
+                "denominator": 2,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 2,
+              "recall@3": 1.0,
+              "recall@3_denominator": 2,
+              "recall@5": 1.0,
+              "recall@5_denominator": 2
+            },
+            "recall_raw": {
+              "evidence_rate": 0.5,
+              "evidence_rate_denominator": 2,
+              "hit@1": 1.0,
+              "hit@1_denominator": 2,
+              "hit@3": 1.0,
+              "hit@3_denominator": 2,
+              "hit@5": 1.0,
+              "hit@5_denominator": 2,
+              "page": {
+                "denominator": 2,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 2,
+              "recall@3": 1.0,
+              "recall@3_denominator": 2,
+              "recall@5": 1.0,
+              "recall@5_denominator": 2
+            }
+          },
+          "total": 2
+        },
+        "refusal": {
+          "pass_rate": 1.0,
+          "passed": 3,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 3,
+              "hit@1": null,
+              "hit@1_denominator": 0,
+              "hit@3": null,
+              "hit@3_denominator": 0,
+              "hit@5": null,
+              "hit@5_denominator": 0,
+              "page": {
+                "denominator": 0,
+                "hit_rate": null,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": null,
+              "recall@1_denominator": 0,
+              "recall@3": null,
+              "recall@3_denominator": 0,
+              "recall@5": null,
+              "recall@5_denominator": 0
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 3,
+              "hit@1": null,
+              "hit@1_denominator": 0,
+              "hit@3": null,
+              "hit@3_denominator": 0,
+              "hit@5": null,
+              "hit@5_denominator": 0,
+              "page": {
+                "denominator": 0,
+                "hit_rate": null,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": null,
+              "recall@1_denominator": 0,
+              "recall@3": null,
+              "recall@3_denominator": 0,
+              "recall@5": null,
+              "recall@5_denominator": 0
+            }
+          },
+          "total": 3
+        },
+        "refusal_boundary": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": 1.0,
+              "hit@1_denominator": 1,
+              "hit@3": 1.0,
+              "hit@3_denominator": 1,
+              "hit@5": 1.0,
+              "hit@5_denominator": 1,
+              "page": {
+                "denominator": 1,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 1,
+              "recall@3": 1.0,
+              "recall@3_denominator": 1,
+              "recall@5": 1.0,
+              "recall@5_denominator": 1
+            }
+          },
+          "total": 1
+        },
+        "section": {
+          "pass_rate": 0.75,
+          "passed": 6,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.625,
+              "evidence_rate_denominator": 8,
+              "hit@1": 0.875,
+              "hit@1_denominator": 8,
+              "hit@3": 1.0,
+              "hit@3_denominator": 8,
+              "hit@5": 1.0,
+              "hit@5_denominator": 8,
+              "page": {
+                "denominator": 8,
+                "hit_rate": 0.75,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 0.875,
+              "recall@1_denominator": 8,
+              "recall@3": 1.0,
+              "recall@3_denominator": 8,
+              "recall@5": 1.0,
+              "recall@5_denominator": 8
+            },
+            "recall_raw": {
+              "evidence_rate": 0.625,
+              "evidence_rate_denominator": 8,
+              "hit@1": 0.625,
+              "hit@1_denominator": 8,
+              "hit@3": 0.875,
+              "hit@3_denominator": 8,
+              "hit@5": 0.875,
+              "hit@5_denominator": 8,
+              "page": {
+                "denominator": 8,
+                "hit_rate": 0.75,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 0.625,
+              "recall@1_denominator": 8,
+              "recall@3": 0.875,
+              "recall@3_denominator": 8,
+              "recall@5": 0.875,
+              "recall@5_denominator": 8
+            }
+          },
+          "total": 8
+        },
+        "summary_full": {
+          "pass_rate": 1.0,
+          "passed": 2,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 2,
+              "hit@1": 1.0,
+              "hit@1_denominator": 2,
+              "hit@3": 1.0,
+              "hit@3_denominator": 2,
+              "hit@5": 1.0,
+              "hit@5_denominator": 2,
+              "page": {
+                "denominator": 2,
+                "hit_rate": 0.5,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 0.5,
+              "recall@1_denominator": 2,
+              "recall@3": 0.75,
+              "recall@3_denominator": 2,
+              "recall@5": 0.75,
+              "recall@5_denominator": 2
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 2,
+              "hit@1": 1.0,
+              "hit@1_denominator": 2,
+              "hit@3": 1.0,
+              "hit@3_denominator": 2,
+              "hit@5": 1.0,
+              "hit@5_denominator": 2,
+              "page": {
+                "denominator": 2,
+                "hit_rate": 0.5,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 0.5,
+              "recall@1_denominator": 2,
+              "recall@3": 0.5,
+              "recall@3_denominator": 2,
+              "recall@5": 0.75,
+              "recall@5_denominator": 2
+            }
+          },
+          "total": 2
+        },
+        "synonym": {
+          "pass_rate": 0.8333,
+          "passed": 5,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.5833,
+              "evidence_rate_denominator": 6,
+              "hit@1": 1.0,
+              "hit@1_denominator": 6,
+              "hit@3": 1.0,
+              "hit@3_denominator": 6,
+              "hit@5": 1.0,
+              "hit@5_denominator": 6,
+              "page": {
+                "denominator": 6,
+                "hit_rate": 0.6667,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 6,
+              "recall@3": 1.0,
+              "recall@3_denominator": 6,
+              "recall@5": 1.0,
+              "recall@5_denominator": 6
+            },
+            "recall_raw": {
+              "evidence_rate": 0.5833,
+              "evidence_rate_denominator": 6,
+              "hit@1": 1.0,
+              "hit@1_denominator": 6,
+              "hit@3": 1.0,
+              "hit@3_denominator": 6,
+              "hit@5": 1.0,
+              "hit@5_denominator": 6,
+              "page": {
+                "denominator": 6,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 1.0,
+              "recall@1_denominator": 6,
+              "recall@3": 1.0,
+              "recall@3_denominator": 6,
+              "recall@5": 1.0,
+              "recall@5_denominator": 6
+            }
+          },
+          "total": 6
+        },
+        "table": {
+          "pass_rate": 1.0,
+          "passed": 20,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.7,
+              "evidence_rate_denominator": 20,
+              "hit@1": 0.9,
+              "hit@1_denominator": 20,
+              "hit@3": 1.0,
+              "hit@3_denominator": 20,
+              "hit@5": 1.0,
+              "hit@5_denominator": 20,
+              "page": {
+                "denominator": 20,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 0.9,
+              "recall@1_denominator": 20,
+              "recall@3": 1.0,
+              "recall@3_denominator": 20,
+              "recall@5": 1.0,
+              "recall@5_denominator": 20
+            },
+            "recall_raw": {
+              "evidence_rate": 0.75,
+              "evidence_rate_denominator": 20,
+              "hit@1": 0.95,
+              "hit@1_denominator": 20,
+              "hit@3": 1.0,
+              "hit@3_denominator": 20,
+              "hit@5": 1.0,
+              "hit@5_denominator": 20,
+              "page": {
+                "denominator": 20,
+                "hit_rate": 1.0,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": 0.95,
+              "recall@1_denominator": 20,
+              "recall@3": 1.0,
+              "recall@3_denominator": 20,
+              "recall@5": 1.0,
+              "recall@5_denominator": 20
+            }
+          },
+          "total": 20
+        },
+        "year_boundary": {
+          "pass_rate": 1.0,
+          "passed": 1,
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": null,
+              "hit@1_denominator": 0,
+              "hit@3": null,
+              "hit@3_denominator": 0,
+              "hit@5": null,
+              "hit@5_denominator": 0,
+              "page": {
+                "denominator": 0,
+                "hit_rate": null,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": null,
+              "recall@1_denominator": 0,
+              "recall@3": null,
+              "recall@3_denominator": 0,
+              "recall@5": null,
+              "recall@5_denominator": 0
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "evidence_rate_denominator": 1,
+              "hit@1": null,
+              "hit@1_denominator": 0,
+              "hit@3": null,
+              "hit@3_denominator": 0,
+              "hit@5": null,
+              "hit@5_denominator": 0,
+              "page": {
+                "denominator": 0,
+                "hit_rate": null,
+                "not_scoreable_no_metadata": 0
+              },
+              "recall@1": null,
+              "recall@1_denominator": 0,
+              "recall@3": null,
+              "recall@3_denominator": 0,
+              "recall@5": null,
+              "recall@5_denominator": 0
+            }
+          },
+          "total": 1
+        }
+      },
+      "completed_total": 36,
+      "generated_at": "2026-09-06T01:52:40+00:00",
+      "hit_ks": [
+        1,
+        3,
+        5
+      ],
+      "kind": "rag",
+      "label": "qdrant-full-185-kb_full_codex_20260830_24c7407e",
+      "passed": 34,
+      "planned_total": 36,
+      "results": [
+        {
+          "answer": "董事杨彬、监事周绍鑫、刘海军、陈友志对半年度报告内容存在异议，无法保证其真实、准确、完整。[1][2][3]",
+          "category": "page_section_evidence",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keywords_all": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 3,
+          "elapsed_s": 30.66,
+          "escalate": false,
+          "faithfulness": 9,
+          "id": "real_guangdao_2025_h1_notice_dissent",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "ST广道2025年半年度报告中，明确表示无法保证报告内容真实、准确、完整的董事和监事分别是谁？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "hit@1": false,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 0.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 2,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "hit@1": false,
+              "hit@3": false,
+              "hit@5": false,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 0.0,
+              "recall@3": 0.0,
+              "recall@5": 0.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "page_evidence",
+            "section",
+            "people",
+            "company_year"
+          ],
+          "top_score": 0.64026326
+        },
+        {
+          "answer": "根据帕瓦股份2024年年度报告，无法保证报告内容真实性、准确性和完整性的两名董事是邓超和凌敏。[1][2]",
+          "category": "page_section_evidence",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keywords_all": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 2,
+          "elapsed_s": 2.59,
+          "escalate": false,
+          "faithfulness": 9,
+          "id": "real_pawa_2024_notice_dissent",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "浙江帕瓦新能源股份有限公司2024年年报中，哪两名董事无法保证报告内容的真实性、准确性和完整性？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": false,
+              "page_no_metadata": false,
+              "page_recall": 0.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 2,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": false,
+              "page_no_metadata": false,
+              "page_recall": 0.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "page_evidence",
+            "section",
+            "people",
+            "company_year"
+          ],
+          "top_score": 0.7392905
+        },
+        {
+          "answer": "元成环境2024年归属于母公司净利润为-325,030,861.71元，营业收入为145,839,584.29元。因连续三年扣非前后净利润孰低均为负且持续经营能力存不确定性，股票被继续实施其他风险警示；同时触及上市规则第9.3.2条，将被实施退市风险警示（*ST）。[1][2]",
+          "category": "page_section_evidence",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keywords_all": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 2,
+          "elapsed_s": 10.72,
+          "escalate": false,
+          "faithfulness": 9,
+          "id": "real_yuancheng_2024_delisting_warning_numbers",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "元成环境2024年年报披露的归属于母公司的净利润和营业收入分别是多少？这触发了什么风险？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 3,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "page_evidence",
+            "numeric",
+            "adjacent_context",
+            "company_year"
+          ],
+          "top_score": 0.75984
+        },
+        {
+          "answer": "锦州港2024年年报披露，2025年计划实现营业收入17.21亿元。该经营计划不构成对投资者的业绩承诺，请投资者注意风险。[1]",
+          "category": "page_section_evidence",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keywords_all": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report"
+          ],
+          "citations": 1,
+          "elapsed_s": 6.84,
+          "escalate": false,
+          "faithfulness": 9,
+          "id": "real_jinzhou_port_2025_plan_not_promise",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "锦州港2024年年报披露的2025年经营计划中，计划营业收入是多少？该计划是否构成业绩承诺？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 2,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "page_evidence",
+            "section",
+            "plan",
+            "refusal_boundary"
+          ],
+          "top_score": 0.78470314
+        },
+        {
+          "answer": "ST广道2025年上半年营业收入为23,357,748.41元。[1][2]",
+          "category": "numeric_table",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keyword": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 2,
+          "elapsed_s": 17.85,
+          "escalate": false,
+          "faithfulness": 9,
+          "id": "real_guangdao_2025_h1_revenue",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "ST广道2025年上半年营业收入是多少？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 2,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "numeric",
+            "table",
+            "company_year"
+          ],
+          "top_score": 0.0
+        },
+        {
+          "answer": "ST葫芦娃2025年上半年营业收入为507,670,912.42元，同比下降42.89%。[1][2]",
+          "category": "numeric_table",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keyword": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 2,
+          "elapsed_s": 10.73,
+          "escalate": false,
+          "faithfulness": 9,
+          "id": "real_huluwa_2025_h1_revenue",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "海南葫芦娃药业集团2025年上半年营业收入具体是多少？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 2,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "numeric",
+            "table",
+            "company_year"
+          ],
+          "top_score": 0.0
+        },
+        {
+          "answer": "内蒙古伊泰煤炭股份有限公司2025年上半年营业收入为20,774,218,376.59元，上年同期为24,940,919,250.91元，同比下降16.71%。[1][2][3]",
+          "category": "numeric_table",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keyword": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 3,
+          "elapsed_s": 12.2,
+          "escalate": false,
+          "faithfulness": 9,
+          "id": "real_yitai_2025_h1_revenue",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "内蒙古伊泰煤炭股份有限公司2025年上半年营业收入是多少？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 2,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "numeric",
+            "table",
+            "large_number",
+            "company_year"
+          ],
+          "top_score": 0.0
+        },
+        {
+          "answer": "伊泰煤炭2025年上半年经营活动产生的现金流量净额为3,898,863,782.71元。[1][2][3]",
+          "category": "numeric_table",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keyword": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 3,
+          "elapsed_s": 7.73,
+          "escalate": false,
+          "faithfulness": 9,
+          "id": "real_yitai_2025_h1_operating_cash",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "伊泰煤炭2025年上半年经营活动产生的现金流量净额是多少？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 1,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "numeric",
+            "table",
+            "cash_flow",
+            "company_year"
+          ],
+          "top_score": 0.7598082
+        },
+        {
+          "answer": "申联生物2025年上半年营业收入为121,725,138.28元，较上年同期下降3.68%。[1][2]",
+          "category": "numeric_table",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keyword": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 2,
+          "elapsed_s": 10.85,
+          "escalate": false,
+          "faithfulness": 9,
+          "id": "real_shenlian_2025_h1_revenue",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "申联生物2025年上半年营业收入是多少？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 2,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "numeric",
+            "table",
+            "company_year"
+          ],
+          "top_score": 0.7128971
+        },
+        {
+          "answer": "申联生物2025年上半年经营活动产生的现金流量净额为-39,389,053.48元。[1][2]",
+          "category": "numeric_table",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keyword": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 2,
+          "elapsed_s": 7.67,
+          "escalate": false,
+          "faithfulness": 9,
+          "id": "real_shenlian_2025_h1_operating_cash",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "申联生物2025年上半年经营活动现金净流量是多少？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": false,
+              "page_no_metadata": false,
+              "page_recall": 0.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 1,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "numeric",
+            "synonym",
+            "cash_flow",
+            "company_year"
+          ],
+          "top_score": 0.7323352
+        },
+        {
+          "answer": "裕太微电子2025年上半年营业收入为221,828,689.43元（约22,182.87万元），同比增长43.41%。[1][2]",
+          "category": "numeric_table",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keyword": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 2,
+          "elapsed_s": 9.57,
+          "escalate": false,
+          "faithfulness": 9,
+          "id": "real_yutai_2025_h1_revenue",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "裕太微电子2025年上半年营业收入具体是多少？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 2,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "numeric",
+            "table",
+            "company_year"
+          ],
+          "top_score": 0.7443272
+        },
+        {
+          "answer": "ST华微2024年营业收入为2,057,608,183.78元。[1][2]",
+          "category": "numeric_table",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keyword": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 2,
+          "elapsed_s": 11.9,
+          "escalate": false,
+          "faithfulness": 8,
+          "id": "real_huawei_2024_revenue",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "吉林华微电子2024年营业收入是多少？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 2,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "numeric",
+            "table",
+            "company_year"
+          ],
+          "top_score": 0.7624285
+        },
+        {
+          "answer": "湖北九有投资2024年归属于上市公司股东的净利润为20,860,428.16元。[1][2]",
+          "category": "numeric_table",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keyword": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 2,
+          "elapsed_s": 13.24,
+          "escalate": false,
+          "faithfulness": 9,
+          "id": "real_jiuyou_2024_net_profit",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "湖北九有投资2024年归属于上市公司股东的净利润是多少？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 1,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "numeric",
+            "table",
+            "profit",
+            "company_year"
+          ],
+          "top_score": 0.75789404
+        },
+        {
+          "answer": "ST中程2024年归属于上市公司股东的净利润为-310,302,902.32元。[1][2]",
+          "category": "numeric_table",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keyword": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 2,
+          "elapsed_s": 16.67,
+          "escalate": false,
+          "faithfulness": 8,
+          "id": "real_zhongcheng_2024_net_profit",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "青岛中资中程2024年归属于上市公司股东的净利润是多少？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "hit@1": false,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 0.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 1,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "numeric",
+            "table",
+            "negative_number",
+            "company_year"
+          ],
+          "top_score": 0.770874
+        },
+        {
+          "answer": "ST东时2024年营业收入为807,388,662.39元,较2023年下降无法确定。[1][2]",
+          "category": "numeric_table",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keyword": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 2,
+          "elapsed_s": 33.07,
+          "escalate": false,
+          "faithfulness": 0,
+          "id": "real_dongshi_2024_revenue",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "ST东时2024年营业收入是多少？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "hit@1": false,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 0.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 2,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "hit@1": false,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 0.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "numeric",
+            "table",
+            "company_year"
+          ],
+          "top_score": 0.0
+        },
+        {
+          "answer": "ST富润2024年营业收入为134,241,812.75元。[1][2]",
+          "category": "numeric_table",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keyword": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 2,
+          "elapsed_s": 13.62,
+          "escalate": false,
+          "faithfulness": 9,
+          "id": "real_furun_2024_revenue",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "ST富润2024年营业收入是多少？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 2,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "numeric",
+            "table",
+            "company_year"
+          ],
+          "top_score": 0.63952553
+        },
+        {
+          "answer": "柯利达2024年归属于上市公司股东的净利润为8,583,076.40元。[1][2]",
+          "category": "numeric_table",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keyword": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 2,
+          "elapsed_s": 13.91,
+          "escalate": false,
+          "faithfulness": 9,
+          "id": "real_kelida_2024_net_profit",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "柯利达2024年归属于上市公司股东的净利润是多少？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 1,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "numeric",
+            "table",
+            "profit",
+            "company_year"
+          ],
+          "top_score": 0.6860304
+        },
+        {
+          "answer": "ST花王2024年归属于上市公司股东的净利润为亏损，金额为-813,312,289.04元。[1][2]",
+          "category": "numeric_table",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keywords_all": true,
+            "keywords_any": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 2,
+          "elapsed_s": 12.31,
+          "escalate": false,
+          "faithfulness": 9,
+          "id": "real_huawang_2024_net_loss",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "ST花王2024年归属于上市公司股东的净利润是盈利还是亏损？金额是多少？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 1,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "numeric",
+            "table",
+            "negative_number",
+            "company_year"
+          ],
+          "top_score": 0.6550101
+        },
+        {
+          "answer": "鹏博士2024年营业收入为1,876,694,452.50元，较上年同期下降27.99%。[1][2]",
+          "category": "numeric_table",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keyword": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 2,
+          "elapsed_s": 13.75,
+          "escalate": false,
+          "faithfulness": 10,
+          "id": "real_pengbo_2024_revenue",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "鹏博士2024年营业收入是多少？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 2,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "numeric",
+            "table",
+            "company_year"
+          ],
+          "top_score": 0.0
+        },
+        {
+          "answer": "ST龙宇2024年营业收入为1,404,920,973.02元。[1][2]",
+          "category": "numeric_table",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keyword": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 2,
+          "elapsed_s": 27.33,
+          "escalate": false,
+          "faithfulness": 10,
+          "id": "real_longyu_2024_revenue",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "上海龙宇数据2024年营业收入是多少？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 2,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "numeric",
+            "table",
+            "company_year"
+          ],
+          "top_score": 0.7772102
+        },
+        {
+          "answer": "中国核建2024年营业总收入为113,541,282,968.02元，同比增长3.80%。[1][2][3]",
+          "category": "synonym_rewrite",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keyword": false,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 3,
+          "elapsed_s": 19.93,
+          "escalate": false,
+          "faithfulness": 9,
+          "id": "real_zhongguohe_2024_total_revenue_synonym",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": false,
+          "question": "中国核建2024年年报经营情况概述中的营业总收入是多少？不要回答归属于上市公司股东的净利润。",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 2,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "synonym",
+            "numeric",
+            "section",
+            "distractor"
+          ],
+          "top_score": 0.0
+        },
+        {
+          "answer": "格力电器2023年年报主要会计数据：营业收入203,979,266,387.09元，归母净利润29,017,387,604.18元，经营活动现金流量净额56,398,426,354.17元，基本每股收益5.22元/股。[1][2]",
+          "category": "numeric_table",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keywords_all": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 2,
+          "elapsed_s": 18.85,
+          "escalate": false,
+          "faithfulness": 9,
+          "id": "real_gree_2023_core_table_fields",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "格力电器2023年年报主要会计数据中，营业收入、归母净利润、经营活动现金流量净额和基本每股收益分别是多少？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 4,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "numeric",
+            "table",
+            "multiple_fields",
+            "adjacent_context"
+          ],
+          "top_score": 0.7358987
+        },
+        {
+          "answer": "申联生物2025年上半年研发投入占营业收入的比例为22.32%。[1][2]",
+          "category": "synonym_rewrite",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keyword": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 2,
+          "elapsed_s": 22.7,
+          "escalate": false,
+          "faithfulness": 9,
+          "id": "real_shenlian_2025_h1_rnd_ratio_synonym",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "申联生物2025年上半年研发投入占营业收入的比例是多少？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 1,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 1.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "synonym",
+            "numeric",
+            "table",
+            "company_year"
+          ],
+          "top_score": 0.7345303
+        },
+        {
+          "answer": "格力电器2023年年报中，研发费用本期发生额为6,762,136,262.23元，上期发生额为6,281,394,430.40元。[1][2]",
+          "category": "synonym_rewrite",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keyword": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 2,
+          "elapsed_s": 14.99,
+          "escalate": false,
+          "faithfulness": 9,
+          "id": "real_gree_2023_rd_expense_synonym",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "格力电器2023年年报中的研发费用金额是多少？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.5,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 2,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 0.5,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "synonym",
+            "numeric",
+            "section",
+            "company_year"
+          ],
+          "top_score": 0.7367476
+        },
+        {
+          "answer": "ST富润2024年扣除与主营业务无关的业务收入和不具备商业实质的收入后的营业收入为110,682,912.05元。[1][2]",
+          "category": "synonym_rewrite",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keyword": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 2,
+          "elapsed_s": 14.09,
+          "escalate": false,
+          "faithfulness": 9,
+          "id": "real_furun_2024_adjusted_revenue_synonym",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "ST富润2024年扣除与主营业务无关及不具备商业实质的收入后，营业收入是多少？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 1,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "synonym",
+            "numeric",
+            "table",
+            "distinction"
+          ],
+          "top_score": 0.6843064
+        },
+        {
+          "answer": "已找到相关资料，但当前答案未通过可靠性核验，暂时不能给出确定回答。",
+          "category": "adjacent_context",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": false,
+            "intent": true,
+            "keywords_all": false,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report"
+          ],
+          "citations": 1,
+          "elapsed_s": 13.47,
+          "escalate": false,
+          "faithfulness": 5,
+          "id": "real_huluwa_2025_h1_revenue_reason",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": false,
+          "question": "海南葫芦娃2025年上半年营业收入同比下降42.89%的主要原因是什么？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": false,
+              "page_no_metadata": false,
+              "page_recall": 0.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 1,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": false,
+              "page_no_metadata": false,
+              "page_recall": 0.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "adjacent_context",
+            "section",
+            "cause_effect",
+            "company_year"
+          ],
+          "top_score": 0.0
+        },
+        {
+          "answer": "裕太微2025年上半年营业收入同比增长43.41%，主要原因是半导体市场延续增长态势，以及2.5G网通以太网物理层芯片等产品销售放量增长，带动营收规模大幅提升。[1][2]",
+          "category": "adjacent_context",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "keywords_all": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 2,
+          "elapsed_s": 10.6,
+          "escalate": false,
+          "faithfulness": 9,
+          "id": "real_yutai_2025_h1_revenue_reason",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "裕太微2025年上半年营业收入同比增长43.41%，报告披露的主要原因是什么？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": false,
+              "page_no_metadata": false,
+              "page_recall": 0.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 1,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "adjacent_context",
+            "cause_effect",
+            "synonym",
+            "company_year"
+          ],
+          "top_score": 0.0
+        },
+        {
+          "answer": "根据年报，ST华微2024年归属于上市公司股东的净利润同比增长246.45%，主要原因是报告期内IPM等产品销售订单增加，销售收入上涨，毛利额增加所致。[1][2]",
+          "category": "adjacent_context",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keywords_all": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 2,
+          "elapsed_s": 31.54,
+          "escalate": false,
+          "faithfulness": 7,
+          "id": "real_huawei_2024_profit_reason",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "吉林华微电子2024年归属于上市公司股东的净利润增加，年报披露的主要原因是什么？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 1,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "hit@1": false,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 0.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "adjacent_context",
+            "cause_effect",
+            "section",
+            "company_year"
+          ],
+          "top_score": 0.0
+        },
+        {
+          "answer": "海越能源2024年度营业收入为1,482,763,229.80元（合并口径）[1]；研发投入合计为10,639,426.95元[2]。",
+          "category": "adjacent_context",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keywords_all": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 2,
+          "elapsed_s": 17.07,
+          "escalate": false,
+          "faithfulness": 8,
+          "id": "real_haiyue_2024_revenue_and_rd_cross_page",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "海越能源2024年营业收入和研发投入合计分别是多少？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.5,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 0.5,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 2,
+              "pages": 2,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 0.5,
+              "hit@1": false,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 0.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "adjacent_context",
+            "cross_page",
+            "numeric",
+            "section"
+          ],
+          "top_score": 0.0
+        },
+        {
+          "answer": "帕瓦股份2024年度营业收入为948,565,984.05元，归属于上市公司股东的净利润为-726,501,484.36元。[1][2]",
+          "category": "multi_document_conflict",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keywords_all": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 2,
+          "elapsed_s": 21.31,
+          "escalate": false,
+          "faithfulness": 9,
+          "id": "real_pawa_full_summary_consistency",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "帕瓦2024年年报及年报摘要都列出的报告期营业收入和归母净利润分别是多少？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": false,
+              "page_no_metadata": false,
+              "page_recall": 0.0,
+              "recall@1": 0.5,
+              "recall@3": 0.5,
+              "recall@5": 0.5
+            },
+            "expected": {
+              "evidence": 2,
+              "pages": 2,
+              "sources": 2
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": false,
+              "page_no_metadata": false,
+              "page_recall": 0.0,
+              "recall@1": 0.5,
+              "recall@3": 0.5,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "multi_document",
+            "consistency",
+            "summary_full",
+            "numeric"
+          ],
+          "top_score": 0.753538
+        },
+        {
+          "answer": "ST广道2025年上半年营业收入为23,357,748.41元，归属于上市公司股东的净利润为-20,631,376.11元。[1][2]",
+          "category": "multi_document_conflict",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keywords_all": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 2,
+          "elapsed_s": 16.38,
+          "escalate": false,
+          "faithfulness": 9,
+          "id": "real_guangdao_full_summary_consistency",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "ST广道2025年半年度报告全文和摘要都列出的本报告期营业收入与归母净利润分别是多少？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 0.5,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 2,
+              "pages": 2,
+              "sources": 2
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 0.5,
+              "recall@3": 0.5,
+              "recall@5": 0.5
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "multi_document",
+            "consistency",
+            "summary_full",
+            "numeric"
+          ],
+          "top_score": 0.0
+        },
+        {
+          "answer": "ST东时2024年营业收入为807,388,662.39元，2023年为1,042,430,987.88元，同比下降22.55%。[1][2]",
+          "category": "company_year_disambiguation",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keywords_all": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 2,
+          "elapsed_s": 10.11,
+          "escalate": false,
+          "faithfulness": 9,
+          "id": "real_dongshi_2024_vs_2023_revenue",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "ST东时年报主要会计数据中，2024年和2023年的营业收入分别是多少？同比变化比例是多少？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 1,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "company_year",
+            "numeric",
+            "table",
+            "confusion"
+          ],
+          "top_score": 0.0
+        },
+        {
+          "answer": "裕太微2025年上半年营业收入为221,828,689.43元，上年同期为154,676,454.00元，同比增长43.41%。[1][2]",
+          "category": "company_year_disambiguation",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "inline_citations": true,
+            "intent": true,
+            "keyword": true,
+            "min_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [
+            "cninfo_report",
+            "cninfo_report"
+          ],
+          "citations": 2,
+          "elapsed_s": 10.13,
+          "escalate": false,
+          "faithfulness": 9,
+          "id": "real_yutai_2025_h1_growth_rate",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "裕太微2025年上半年营业收入相较上年同期增长了多少？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "expected": {
+              "evidence": 1,
+              "pages": 1,
+              "sources": 1
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "hit@1": true,
+              "hit@3": true,
+              "hit@5": true,
+              "page_hit": true,
+              "page_no_metadata": false,
+              "page_recall": 1.0,
+              "recall@1": 1.0,
+              "recall@3": 1.0,
+              "recall@5": 1.0
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "company_year",
+            "numeric",
+            "table",
+            "percentage"
+          ],
+          "top_score": 0.72312146
+        },
+        {
+          "answer": "抱歉，知识库中未检索到能准确回答您问题的相关信息，好的，已为您转接人工客服，请稍候。",
+          "category": "no_answer_refusal",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "escalate": true,
+            "intent": true,
+            "max_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [],
+          "citations": 0,
+          "elapsed_s": 17.92,
+          "escalate": true,
+          "faithfulness": 10,
+          "id": "real_missing_st_guangdao_2025_annual",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "ST广道2025年年度报告披露的全年营业收入是多少？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "hit@1": null,
+              "hit@3": null,
+              "hit@5": null,
+              "page_hit": null,
+              "page_no_metadata": false,
+              "page_recall": null,
+              "recall@1": null,
+              "recall@3": null,
+              "recall@5": null
+            },
+            "expected": {
+              "evidence": 1,
+              "pages": 0,
+              "sources": 0
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "hit@1": null,
+              "hit@3": null,
+              "hit@5": null,
+              "page_hit": null,
+              "page_no_metadata": false,
+              "page_recall": null,
+              "recall@1": null,
+              "recall@3": null,
+              "recall@5": null
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "no_answer",
+            "refusal",
+            "year_boundary",
+            "numeric"
+          ],
+          "top_score": 0.55956435
+        },
+        {
+          "answer": "抱歉，知识库中未检索到能准确回答您问题的相关信息，好的，已为您转接人工客服，请稍候。",
+          "category": "no_answer_refusal",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "escalate": true,
+            "intent": true,
+            "max_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [],
+          "citations": 0,
+          "elapsed_s": 19.72,
+          "escalate": true,
+          "faithfulness": 10,
+          "id": "real_missing_zhongguohe_2025_h1",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "中国核建2025年上半年营业收入是多少？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "hit@1": null,
+              "hit@3": null,
+              "hit@5": null,
+              "page_hit": null,
+              "page_no_metadata": false,
+              "page_recall": null,
+              "recall@1": null,
+              "recall@3": null,
+              "recall@5": null
+            },
+            "expected": {
+              "evidence": 1,
+              "pages": 0,
+              "sources": 0
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "hit@1": null,
+              "hit@3": null,
+              "hit@5": null,
+              "page_hit": null,
+              "page_no_metadata": false,
+              "page_recall": null,
+              "recall@1": null,
+              "recall@3": null,
+              "recall@5": null
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "no_answer",
+            "refusal",
+            "company_year",
+            "corpus_boundary"
+          ],
+          "top_score": 0.67467195
+        },
+        {
+          "answer": "抱歉，知识库中未检索到能准确回答您问题的相关信息，好的，已为您转接人工客服，请稍候。",
+          "category": "no_answer_refusal",
+          "checks": {
+            "answerable": true,
+            "citation_indices": true,
+            "citation_kb_isolation": true,
+            "escalate": true,
+            "intent": true,
+            "max_citations": true,
+            "no_citations_on_escalate": true,
+            "response_shape": true
+          },
+          "citation_kb_ids": [],
+          "citations": 0,
+          "elapsed_s": 18.05,
+          "escalate": true,
+          "faithfulness": 10,
+          "id": "real_missing_report_2026",
+          "intent": "kb_question",
+          "kb_id": "cninfo_report",
+          "needs_clarification": false,
+          "passed": true,
+          "question": "ST广道2026年年度报告中的归母净利润是多少？",
+          "retrieval": {
+            "contexts": {
+              "evidence_rate": 0.0,
+              "hit@1": null,
+              "hit@3": null,
+              "hit@5": null,
+              "page_hit": null,
+              "page_no_metadata": false,
+              "page_recall": null,
+              "recall@1": null,
+              "recall@3": null,
+              "recall@5": null
+            },
+            "expected": {
+              "evidence": 1,
+              "pages": 0,
+              "sources": 0
+            },
+            "recall_raw": {
+              "evidence_rate": 0.0,
+              "hit@1": null,
+              "hit@3": null,
+              "hit@5": null,
+              "page_hit": null,
+              "page_no_metadata": false,
+              "page_recall": null,
+              "recall@1": null,
+              "recall@3": null,
+              "recall@5": null
+            },
+            "status": "scored"
+          },
+          "tags": [
+            "no_answer",
+            "refusal",
+            "future_year",
+            "corpus_boundary"
+          ],
+          "top_score": 0.60269666
+        }
+      ],
+      "run_status": "completed",
+      "schema_version": 2,
+      "selected_case_ids": null,
+      "summary": {
+        "answerable": {
+          "accuracy": 1.0,
+          "denominator": 36
+        },
+        "avg_citations": 1.8889,
+        "error_count": 0,
+        "escalate_rate": 0.0833,
+        "latency": {
+          "avg_s": 15.558,
+          "count": 36,
+          "max_s": 33.07,
+          "p50_s": 13.75,
+          "p95_s": 31.54
+        },
+        "pass_rate": 0.9444,
+        "passed": 34,
+        "retrieval": {
+          "contexts": {
+            "evidence_rate": 0.5833,
+            "evidence_rate_denominator": 36,
+            "hit@1": 0.9091,
+            "hit@1_denominator": 33,
+            "hit@3": 1.0,
+            "hit@3_denominator": 33,
+            "hit@5": 1.0,
+            "hit@5_denominator": 33,
+            "page": {
+              "denominator": 33,
+              "hit_rate": 0.8485,
+              "not_scoreable_no_metadata": 0
+            },
+            "recall@1": 0.8788,
+            "recall@1_denominator": 33,
+            "recall@3": 0.9848,
+            "recall@3_denominator": 33,
+            "recall@5": 0.9848,
+            "recall@5_denominator": 33
+          },
+          "recall_raw": {
+            "evidence_rate": 0.6111,
+            "evidence_rate_denominator": 36,
+            "hit@1": 0.8788,
+            "hit@1_denominator": 33,
+            "hit@3": 0.9697,
+            "hit@3_denominator": 33,
+            "hit@5": 0.9697,
+            "hit@5_denominator": 33,
+            "page": {
+              "denominator": 33,
+              "hit_rate": 0.9091,
+              "not_scoreable_no_metadata": 0
+            },
+            "recall@1": 0.8485,
+            "recall@1_denominator": 33,
+            "recall@3": 0.9394,
+            "recall@3_denominator": 33,
+            "recall@5": 0.9545,
+            "recall@5_denominator": 33
+          }
+        },
+        "small_sample": false,
+        "total": 36
+      },
+      "testset": "testsets\\rag_real_quality_v2.yaml",
+      "total": 36
+    }
+  ]
+}

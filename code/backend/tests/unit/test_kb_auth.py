@@ -4,6 +4,22 @@ from __future__ import annotations
 from services.kb.auth import AuthStore
 
 
+def test_shared_store_serializes_concurrent_reads(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    auth = AuthStore(str(tmp_path / "u.db"))
+    uid, token = auth.create_user("concurrent")
+    auth.grant_access(uid, "default")
+
+    def read_user():
+        user = auth.get_user_by_token(token)
+        assert user and user["user_id"] == uid
+        assert auth.can_access(uid, "default") is True
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(lambda _: read_user(), range(64)))
+
+
 def test_create_user_and_grant(tmp_path):
     auth = AuthStore(str(tmp_path / "u.db"))
     uid, _ = auth.create_user("alice")
@@ -227,3 +243,14 @@ def test_bootstrap_admin_idempotent(tmp_path):
     uid2 = auth.bootstrap_admin(name="admin", token="kb_boot_again")
     assert uid1 == uid2
     assert len(auth.list_users()) == 1
+
+
+def test_customer_service_roles(tmp_path):
+    auth = AuthStore(str(tmp_path / "u.db"))
+    agent_id, _ = auth.create_user("坐席", role="agent")
+    supervisor_id, _ = auth.create_user("主管", role="supervisor")
+    member_id, _ = auth.create_user("普通用户", role="member")
+
+    assert auth.is_customer_service(agent_id) is True
+    assert auth.is_customer_service(supervisor_id) is True
+    assert auth.is_customer_service(member_id) is False

@@ -1,5 +1,5 @@
 /*!
- * 企业知识库智能客服挂件 SDK（注入式）
+ * 上市公司财报智能问答挂件 SDK（注入式）
  * 用法：一行 script 嵌入任意网页
  *   <script data-kb-base="http://localhost:8000" data-kb-id="default" data-channel="web"
  *           src="http://localhost:5174/kb-chat.js"></script>
@@ -20,13 +20,31 @@
     if (s.getAttribute("data-channel")) cfg.channel = s.getAttribute("data-channel");
   }
 
+  function createVisitorToken() {
+    var bytes = new Uint8Array(32);
+    window.crypto.getRandomValues(bytes);
+    var hex = "";
+    for (var i = 0; i < bytes.length; i++) hex += bytes[i].toString(16).padStart(2, "0");
+    return "kbv_" + hex;
+  }
+
+  var visitorToken = localStorage.getItem("kb_visitor_token");
+  if (!visitorToken || !/^kbv_[a-f0-9]{64}$/.test(visitorToken)) {
+    visitorToken = createVisitorToken();
+    localStorage.setItem("kb_visitor_token", visitorToken);
+  }
+
   // 访客临时身份（不要求登录）
   var visitorId = localStorage.getItem("kb_visitor_id");
   if (!visitorId) {
     visitorId = "visitor-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
     localStorage.setItem("kb_visitor_id", visitorId);
   }
-  var threadId = "kb-" + Date.now();
+  var threadStorageKey = "kb_widget_thread_" + cfg.kbId;
+  var threadId = localStorage.getItem(threadStorageKey) || ("kb-" + Date.now());
+  localStorage.setItem(threadStorageKey, threadId);
+  var conversation = null;
+  var pollTimer = null;
 
   // 注入样式
   var css = [
@@ -57,14 +75,14 @@
   // 注入 DOM
   var bubble = document.createElement("button");
   bubble.id = "kb-bubble";
-  bubble.title = "在线客服";
+  bubble.title = "在线问答";
   bubble.textContent = "💬";
   document.body.appendChild(bubble);
 
   var panel = document.createElement("div");
   panel.id = "kb-panel";
   panel.innerHTML =
-    '<div id="kb-head">智能客服 <small id="kb-hint">AI 服务中</small></div>' +
+    '<div id="kb-head">财报智能问答 <small id="kb-hint">AI 服务中</small></div>' +
     '<div id="kb-msgs"></div>' +
     '<div id="kb-input"><textarea id="kb-q" rows="1" placeholder="输入您的问题…"></textarea>' +
     '<button id="kb-send">发送</button></div>';
@@ -85,11 +103,63 @@
     return d;
   }
 
+  function setHint(status) {
+    if (status === "waiting") hint.textContent = "已为您转接人工客服，等待接入…";
+    else if (status === "human") hint.textContent = "座席已接入，请继续对话。";
+    else if (status === "closed") hint.textContent = "本次服务已结束。";
+    else hint.textContent = "AI 服务中";
+  }
+
+  function renderMessages(serverMessages) {
+    msgs.innerHTML = "";
+    (serverMessages || []).forEach(function (message) {
+      addMsg(message.role === "agent" ? "assistant" : message.role, message.content || "");
+    });
+  }
+
+  function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  function refreshConversation() {
+    var url = cfg.base + "/kb/conversations/" + encodeURIComponent(threadId) + "/messages?visitor_token=" + encodeURIComponent(visitorToken);
+    return fetch(url)
+      .then(function (resp) {
+        if (resp.status === 404) { conversation = null; stopPolling(); return null; }
+        if (!resp.ok) throw new Error("HTTP " + resp.status);
+        return resp.json();
+      })
+      .then(function (data) {
+        if (!data) return null;
+        conversation = data.conversation || null;
+        renderMessages(data.messages);
+        setHint(conversation && conversation.status);
+        if (!conversation || conversation.status === "closed" || conversation.status === "ai") stopPolling();
+        return conversation;
+      });
+  }
+
+  function startPolling() {
+    stopPolling();
+    pollTimer = setInterval(function () { refreshConversation().catch(function () {}); }, 5000);
+  }
+
+  function sendHumanMessage(content) {
+    return fetch(cfg.base + "/kb/conversations/" + encodeURIComponent(threadId) + "/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: content, visitor_token: visitorToken })
+    }).then(function (resp) {
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      return refreshConversation();
+    });
+  }
+
   function pollStatus(convId) {
     var n = 0;
     var timer = setInterval(function () {
       n++;
-      fetch(cfg.base + "/kb/conversation/" + convId + "/status")
+      fetch(cfg.base + "/kb/conversation/" + convId + "/status?visitor_token=" + encodeURIComponent(visitorToken))
         .then(function (r) { return r.json(); })
         .then(function (d) {
           if (d.status === "human") { hint.textContent = "坐席已接入"; clearInterval(timer); }
@@ -103,6 +173,13 @@
   function ask() {
     var question = q.value.trim();
     if (!question) return;
+    if (conversation && (conversation.status === "waiting" || conversation.status === "human")) {
+      q.value = "";
+      sendHumanMessage(question)
+        .then(function (current) { if (current && current.status !== "closed") startPolling(); })
+        .catch(function (e) { addMsg("assistant", "\u274c\u53d1\u9001\u4eba\u5de5\u6d88\u606f\u5931\u8d25: " + e.message); });
+      return;
+    }
     addMsg("user", question);
     q.value = "";
     var el = addMsg("assistant", "");
@@ -111,7 +188,7 @@
     fetch(cfg.base + "/kb/ask/stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question: question, kb_id: cfg.kbId, thread_id: threadId, user_id: visitorId }),
+      body: JSON.stringify({ question: question, kb_id: cfg.kbId, thread_id: threadId, user_id: visitorId, visitor_token: visitorToken }),
     }).then(function (resp) {
       var reader = resp.body.getReader();
       var decoder = new TextDecoder();
@@ -130,7 +207,12 @@
               if (ev.type === "token") { answer += ev.text; }
               else if (ev.type === "final") {
                 answer = ev.answer;
-                if (ev.escalate) { hint.textContent = "已为您转接人工客服"; if (ev.conversation_id) pollStatus(ev.conversation_id); }
+                if (ev.escalate) {
+                  conversation = { id: ev.conversation_id, status: ev.status || "waiting", agent_id: ev.agent_id };
+                  refreshConversation().then(function (current) {
+                    if (current && current.status !== "closed") startPolling();
+                  }).catch(function () {});
+                }
               } else if (ev.type === "error") { answer = "❌ " + ev.detail; }
             } catch (e) {}
           });
@@ -151,4 +233,7 @@
   q.addEventListener("keydown", function (e) {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(); }
   });
+  refreshConversation().then(function (current) {
+    if (current && (current.status === "waiting" || current.status === "human")) startPolling();
+  }).catch(function () {});
 })();

@@ -56,6 +56,9 @@ class TicketStore:
                 description     TEXT NOT NULL DEFAULT '',
                 status          TEXT NOT NULL DEFAULT 'pending',
                 assignee        TEXT NOT NULL DEFAULT '',
+                kb_id           TEXT NOT NULL DEFAULT 'default',
+                priority        TEXT NOT NULL DEFAULT 'normal',
+                due_at          TEXT,
                 created_at      TEXT DEFAULT (datetime('now')),
                 updated_at      TEXT DEFAULT (datetime('now'))
             );
@@ -68,6 +71,31 @@ class TicketStore:
             );
             """
         )
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(tickets)")}
+        if "priority" not in columns:
+            self._conn.execute(
+                "ALTER TABLE tickets ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal'"
+            )
+        if "due_at" not in columns:
+            self._conn.execute("ALTER TABLE tickets ADD COLUMN due_at TEXT")
+        if "kb_id" not in columns:
+            self._conn.execute(
+                "ALTER TABLE tickets ADD COLUMN kb_id TEXT NOT NULL DEFAULT 'default'"
+            )
+        conversation_db = Path(db_path).with_name("kb_conversations.db")
+        if conversation_db.is_file():
+            with sqlite3.connect(conversation_db) as conversation_conn:
+                has_conversations = conversation_conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='conversations'"
+                ).fetchone()
+                if has_conversations:
+                    for conversation_id, kb_id in conversation_conn.execute(
+                        "SELECT id,kb_id FROM conversations"
+                    ):
+                        self._conn.execute(
+                            "UPDATE tickets SET kb_id=? WHERE conversation_id=? AND kb_id='default'",
+                            (kb_id, conversation_id),
+                        )
         self._conn.commit()
 
     def _next_no(self) -> str:
@@ -88,21 +116,33 @@ class TicketStore:
         conversation_id: int | None = None,
         title: str = "",
         description: str = "",
+        kb_id: str = "default",
+        priority: str = "normal",
+        due_hours: int = 24,
     ) -> dict[str, Any]:
         """建单。返回 {ticket_id, ticket_no}。
 
         P1：发号器 MAX + INSERT 多步非原子，用写锁串行化 + IntegrityError 重试
         双重兜底，保证并发下也能拿到唯一号、不撞锁。
         """
+        if priority not in {"low", "normal", "high", "urgent"}:
+            raise ValueError("非法工单优先级")
+        if not kb_id.strip():
+            raise ValueError("知识库 ID 不能为空")
+        if due_hours < 1 or due_hours > 8760:
+            raise ValueError("工单处理时限必须在 1 到 8760 小时之间")
+        due_at = (
+            _dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(hours=due_hours)
+        ).isoformat()
         with self._write_lock:
             last_exc: Exception | None = None
             for _ in range(10):
                 ticket_no = self._next_no()
                 try:
                     cur = self._conn.execute(
-                        "INSERT INTO tickets(ticket_no, conversation_id, title, description) "
-                        "VALUES(?,?,?,?)",
-                        (ticket_no, conversation_id, title[:200], description[:2000]),
+                        "INSERT INTO tickets(ticket_no, conversation_id, title, description,kb_id,priority,due_at) "
+                        "VALUES(?,?,?,?,?,?,?)",
+                        (ticket_no, conversation_id, title[:200], description[:2000], kb_id.strip(), priority, due_at),
                     )
                     self._conn.commit()
                     tid = cur.lastrowid
@@ -165,7 +205,7 @@ class TicketStore:
     def get(self, ticket_id: int) -> dict[str, Any] | None:
         row = self._conn.execute(
             "SELECT id, ticket_no, conversation_id, title, description, status, "
-            "assignee, created_at, updated_at FROM tickets WHERE id=?",
+            "assignee, created_at, updated_at, priority, due_at, kb_id FROM tickets WHERE id=?",
             (ticket_id,),
         ).fetchone()
         if not row:
@@ -174,6 +214,7 @@ class TicketStore:
             "id": row[0], "ticket_no": row[1], "conversation_id": row[2],
             "title": row[3], "description": row[4], "status": row[5],
             "assignee": row[6], "created_at": row[7], "updated_at": row[8],
+            "priority": row[9], "due_at": row[10], "kb_id": row[11],
         }
         d["progress"] = self.list_progress(ticket_id)
         return d
@@ -181,7 +222,7 @@ class TicketStore:
     def list(self, status: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
         sql = (
             "SELECT id, ticket_no, conversation_id, title, description, status, "
-            "assignee, created_at, updated_at FROM tickets"
+            "assignee, created_at, updated_at, priority, due_at, kb_id FROM tickets"
         )
         params: tuple = ()
         if status:
@@ -194,6 +235,7 @@ class TicketStore:
                 "id": r[0], "ticket_no": r[1], "conversation_id": r[2],
                 "title": r[3], "description": r[4], "status": r[5],
                 "assignee": r[6], "created_at": r[7], "updated_at": r[8],
+                "priority": r[9], "due_at": r[10], "kb_id": r[11],
             }
             for r in rows
         ]
@@ -205,3 +247,19 @@ class TicketStore:
             (ticket_id,),
         ).fetchall()
         return [{"action": r[0], "note": r[1], "created_at": r[2]} for r in rows]
+
+    def overdue(self) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            "SELECT id FROM tickets WHERE status NOT IN ('resolved','closed') "
+            "AND due_at IS NOT NULL AND due_at < ?",
+            (_utc_now_iso(),),
+        ).fetchall()
+        return [ticket for (ticket_id,) in rows if (ticket := self.get(ticket_id))]
+
+    def stats(self) -> dict[str, int]:
+        result = {"total": 0, "pending": 0, "processing": 0, "resolved": 0, "closed": 0, "overdue": 0}
+        for status, count in self._conn.execute("SELECT status,COUNT(*) FROM tickets GROUP BY status"):
+            result[str(status)] = int(count)
+            result["total"] += int(count)
+        result["overdue"] = len(self.overdue())
+        return result

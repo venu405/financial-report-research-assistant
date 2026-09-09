@@ -8,17 +8,18 @@
 """
 from __future__ import annotations
 
+import sqlite3
 import threading
 
 import pytest
 
 from services.kb.ticket_store import (
+    _TRANSITIONS,
     STATUS_CLOSED,
     STATUS_PENDING,
     STATUS_PROCESSING,
     STATUS_RESOLVED,
     VALID_STATUS,
-    _TRANSITIONS,
     TicketStore,
 )
 
@@ -67,6 +68,16 @@ def test_assign_closed_ticket_rejected(tmp_path):
         store.assign(tid, "agent-1")
 
 
+def test_ticket_create_validates_priority_and_due_hours(tmp_path):
+    store = TicketStore(str(tmp_path / "t.db"))
+    with pytest.raises(ValueError, match="优先级"):
+        store.create(title="x", priority="invalid")
+    with pytest.raises(ValueError, match="时限"):
+        store.create(title="x", due_hours=0)
+    with pytest.raises(ValueError, match="时限"):
+        store.create(title="x", due_hours=8761)
+
+
 def test_ticket_no_generator_concurrent(tmp_path):
     """发号器并发不撞号（COUNT/MAX + INSERT 竞态由 IntegrityError 重试兜底）。"""
     store = TicketStore(str(tmp_path / "t.db"))
@@ -86,3 +97,30 @@ def test_ticket_no_generator_concurrent(tmp_path):
     # 20 个并发建单，编号必须唯一
     assert len(nos) == 20
     assert len(set(nos)) == 20
+
+
+def test_ticket_stats_include_total(tmp_path):
+    store = TicketStore(str(tmp_path / "t.db"))
+    first = store.create(title="一", kb_id="finance")
+    store.create(title="二")
+    store.update_status(first["ticket_id"], STATUS_PROCESSING)
+
+    stats = store.stats()
+    assert stats["total"] == 2
+    assert stats["pending"] == 1
+    assert stats["processing"] == 1
+    assert store.get(first["ticket_id"])["kb_id"] == "finance"
+
+
+def test_legacy_ticket_kb_is_backfilled_from_conversation(tmp_path):
+    ticket_db = tmp_path / "kb_tickets.db"
+    conversation_db = tmp_path / "kb_conversations.db"
+    with sqlite3.connect(conversation_db) as conn:
+        conn.execute("CREATE TABLE conversations (id INTEGER PRIMARY KEY, kb_id TEXT)")
+        conn.execute("INSERT INTO conversations VALUES(7,'finance')")
+    store = TicketStore(str(ticket_db))
+    created = store.create(conversation_id=7, title="历史", kb_id="default")
+
+    # Re-opening runs the compatibility backfill used for pre-kb_id ticket rows.
+    reopened = TicketStore(str(ticket_db))
+    assert reopened.get(created["ticket_id"])["kb_id"] == "finance"

@@ -1,0 +1,10 @@
+﻿# 已灌入 cninfo_report 的年报知识库回归集
+kb_id: cninfo_report
+tests:
+  - question: "上市公司年报中的重要提示通常包含哪些内容？"
+    expect_answerable: true
+    expect_keyword: "董事"
+    expect_min_citations: 1
+  - question: "ST盛润2024年的营业收入具体是多少？"
+    # 当前表格数字场景应转人工，不能编造答案。
+    expect_answerable: false

@@ -1,0 +1,7 @@
+﻿# 当前样本带文本层：只验证 RapidOCR 管线与关键字段覆盖，不能推断 OCR 准确率。
+samples:
+  - path: data_kb_test/cninfo/ST广道-2025年半年度报告.pdf
+    page: 0
+    ocr_mode: local
+    min_chars: 50
+    expect_terms: ["广道", "年度报告"]

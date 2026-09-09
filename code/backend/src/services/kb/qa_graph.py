@@ -84,6 +84,20 @@ _FINANCIAL_SCOPE_RE = re.compile(
 _CAUSE_EVIDENCE_RE = re.compile(
     r"主要(?:原因)?(?:系|是)|由于|因为|受[^。！？\n]{1,18}影响|导致|带动|推动|得益于|源于|所致"
 )
+_CAUSE_PROTECTION_CHANGE_RE = re.compile(
+    r"同比|环比|增减|变化|变动|增加|减少|增长|下降|上升|下滑|降低|提升|"
+    r"增幅|降幅|升幅|较上年|较同期|较去年|比上年|比同期|比去年"
+)
+_CAUSE_PROTECTION_DECREASE_RE = re.compile(
+    r"下降|下滑|减少|降低|下跌|负增长|降幅|下降原因|减少原因"
+)
+_CAUSE_PROTECTION_INCREASE_RE = re.compile(
+    r"增长|上升|增加|提升|上涨|正增长|增幅|增长原因|增加原因"
+)
+_CAUSE_PROTECTION_EVIDENCE_RE = re.compile(
+    r"主要(?:原因)?(?:系|是)|原因在于|由于|因为|受[^。！？\n]{1,24}影响|"
+    r"导致|带动|推动|得益于|源于|所致"
+)
 _PLAN_COMMITMENT_QUESTION_RE = re.compile(
     r"经营计划|年度计划|计划(?:营业收入|收入|金额)|经营目标"
 )
@@ -2377,11 +2391,13 @@ def _partial_numeric_fallback_answer(
 ) -> str | None:
     """混合数字答案最终重试失败时，仅遮蔽未被支持的数字。
 
-    只对至少包含两个财务项目、且同时存在已支持和未支持数字的答案生效。
+    只对至少包含一个财务项目、且同时存在已支持和未支持数字的答案生效。
+    单字段问题也可能被模型附带一个未被当前证据支持的同比百分比；这种情况
+    应只遮蔽该附带数字，不能因为它不是题目要求的字段就抹掉已支持的主值。
     字符位置来自同一套确定性核验结果，避免用字符串替换误伤重复的合法数字；
     若替换后仍有漏答/绑定问题，则交回原有整题安全说明。
     """
-    if len(_requested_financial_items(question)) < 2:
+    if not _requested_financial_items(question):
         return None
     supported, unsupported = _verify_numeric_claims(
         answer, evidence_texts, question=question
@@ -3029,6 +3045,41 @@ def _verification_evidence_items(
     return evidence
 
 
+def _single_field_candidate_supports_explicit_claim(
+    sentence: str,
+    question: str,
+    candidate_evidence: list[Any],
+) -> bool:
+    """Check the explicitly labelled requested value for single-field relocation."""
+    requested_metrics = _requested_metric_keys(question)
+    if len(requested_metrics) != 1:
+        return False
+    claims = [
+        claim
+        for claim in _extract_numeric_claims(sentence)
+        if not _is_unbound_format_number(claim, sentence)
+    ]
+    for target in claims:
+        alias = _metric_alias_for_numeric_claim(sentence, target)
+        if _canonical_metric(alias) != requested_metrics[0]:
+            continue
+        single_claim_answer = sentence
+        for other in reversed(claims):
+            if other.start == target.start and other.end == target.end:
+                continue
+            single_claim_answer = (
+                single_claim_answer[: other.start]
+                + single_claim_answer[other.end :]
+            )
+        if _verify_numeric_claims(
+            single_claim_answer,
+            candidate_evidence,
+            question=question,
+        )[0]:
+            return True
+    return False
+
+
 def _relocate_numeric_citations(
     answer: str,
     question: str,
@@ -3123,6 +3174,12 @@ def _relocate_numeric_citations(
             candidate_supported, _ = _verify_numeric_claims(
                 sentence, candidate_evidence, question
             )
+            if not candidate_supported:
+                candidate_supported = _single_field_candidate_supports_explicit_claim(
+                    sentence,
+                    question,
+                    candidate_evidence,
+                )
             if candidate_supported:
                 matching_candidates.append(candidate_index)
         if len(matching_candidates) != 1:
@@ -3212,6 +3269,99 @@ def _period_matches_question(question: str, evidence_text: str) -> bool:
     return any(_period_compatible(period, question) for period in evidence_periods)
 
 
+def _candidate_authoritative_doc_id(
+    question: str, hit: dict[str, Any]
+) -> str:
+    """仅从权威标题/主体元数据锁定问题主体对应的 doc_id。"""
+    if not isinstance(hit, dict):
+        return ""
+    metadata = hit.get("metadata") if isinstance(hit.get("metadata"), dict) else {}
+    subjects = _question_subject_hints(question)
+    authority_text = " ".join(
+        str(value or "")
+        for value in (
+            metadata.get("company"),
+            metadata.get("doc_title"),
+            hit.get("doc_title"),
+        )
+        if str(value or "").strip()
+    )
+    normalized_authority = unicodedata.normalize("NFKC", authority_text).casefold()
+    if not subjects or not normalized_authority:
+        return ""
+    if not any(
+        unicodedata.normalize("NFKC", subject).casefold() in normalized_authority
+        for subject in subjects
+    ):
+        return ""
+    return str(metadata.get("doc_id") or hit.get("doc_id") or "").strip()
+
+
+def _candidate_period_matches_question(
+    question: str, hit: dict[str, Any]
+) -> bool:
+    """优先以候选 metadata 的期间判定，避免错误期间被标题文本掩盖。"""
+    if not _question_period_tokens(question):
+        return False
+    metadata = hit.get("metadata") if isinstance(hit.get("metadata"), dict) else {}
+    report_period = str(metadata.get("report_period") or "").strip()
+    if report_period:
+        return _period_matches_question(question, report_period)
+    title = str(metadata.get("doc_title") or hit.get("doc_title") or "").strip()
+    if title:
+        return _period_matches_question(question, title)
+    return _period_matches_question(question, str(hit.get("text") or ""))
+
+
+def _change_direction_near_metric(text: str, metric: str) -> str:
+    """返回指标邻域内的增减方向；同时出现两种方向时不作猜测。"""
+    normalized = _numeric_text_for_matching(text)
+    windows = []
+    for start, end, found_metric in _metric_mentions(normalized):
+        if found_metric != metric:
+            continue
+        windows.append(normalized[max(0, start - 96) : min(len(normalized), end + 160)])
+    directions = {
+        direction
+        for direction, pattern in (
+            ("decrease", _CAUSE_PROTECTION_DECREASE_RE),
+            ("increase", _CAUSE_PROTECTION_INCREASE_RE),
+        )
+        if any(pattern.search(window) for window in windows)
+    }
+    return next(iter(directions)) if len(directions) == 1 else ""
+
+
+def _reason_question_protection_metrics(
+    question: str, hit: dict[str, Any]
+) -> tuple[str, ...]:
+    """只返回同时具备主体、期间、指标变化和因果表达的原因题指标。"""
+    requested_metrics = _requested_metric_keys(question)
+    if (
+        not requested_metrics
+        or not _candidate_authoritative_doc_id(question, hit)
+        or not _candidate_period_matches_question(question, hit)
+    ):
+        return ()
+
+    text = _numeric_text_for_matching(str(hit.get("text") or ""))
+    matched: list[str] = []
+    for start, end, metric in _metric_mentions(text):
+        if metric not in requested_metrics or metric in matched:
+            continue
+        window = text[max(0, start - 96) : min(len(text), end + 160)]
+        if not _CAUSE_PROTECTION_CHANGE_RE.search(window):
+            continue
+        if not _CAUSE_PROTECTION_EVIDENCE_RE.search(window):
+            continue
+        question_direction = _change_direction_near_metric(question, metric)
+        evidence_direction = _change_direction_near_metric(text, metric)
+        if question_direction and evidence_direction != question_direction:
+            continue
+        matched.append(metric)
+    return tuple(metric for metric in requested_metrics if metric in matched)
+
+
 def _has_reliable_question_evidence(
     question: str,
     contexts: list[dict[str, Any]],
@@ -3274,6 +3424,9 @@ def _deterministic_financial_match_metrics(
     if not requested_metrics or not isinstance(hit, dict):
         return ()
 
+    if _is_reason_question(question):
+        return _reason_question_protection_metrics(question, hit)
+
     metadata = hit.get("metadata") if isinstance(hit.get("metadata"), dict) else {}
     title = str(metadata.get("doc_title") or hit.get("doc_title") or "")
     text = str(hit.get("text") or "")
@@ -3308,11 +3461,6 @@ def _deterministic_financial_match_metrics(
         ):
             matched.add(fact.metric)
 
-    # 原因题的精确证据必须来自叙述正文；结构化数值事实只能说明指标存在，
-    # 不能代替“主要系……所致”等原因段落。
-    if _is_reason_question(question):
-        matched.clear()
-
     for evidence_text in _table_body_evidence(hit):
         evidence_period_text = " ".join(
             part
@@ -3326,15 +3474,6 @@ def _deterministic_financial_match_metrics(
         if question_periods and not _period_matches_question(
             question, evidence_period_text
         ):
-            continue
-        text_metrics = {
-            metric
-            for _start, _end, metric in _metric_mentions(evidence_text)
-            if metric in requested
-        }
-        if _is_reason_question(question):
-            if text_metrics and _CAUSE_EVIDENCE_RE.search(evidence_text):
-                matched.update(text_metrics)
             continue
         numeric_metrics = {
             claim.metric
@@ -3979,12 +4118,20 @@ def build_qa_graph(
         # 构造上下文：编号分块，让 LLM 用 [1][2] 标注引用
         context_block = _format_context_block(state.get("contexts", []), passages)
         correction_block = ""
-        if state.get("retries", 0) > 0 and state.get("verification_reasons"):
-            correction_block = (
-                "这是一次定向纠错重试。上一版回答未通过确定性核验："
-                + "；".join(state["verification_reasons"])
-                + "。请只依据下列资料修正，不要补造资料、改写数字单位或省略口径标签。\n"
-            )
+        if state.get("retries", 0) > 0:
+            verification_reasons = state.get("verification_reasons") or []
+            if verification_reasons:
+                correction_block = (
+                    "这是一次定向纠错重试。上一版回答未通过确定性核验："
+                    + "；".join(verification_reasons)
+                    + "。请只依据下列资料修正，不要补造资料、改写数字单位或省略口径标签。\n"
+                )
+            else:
+                correction_block = (
+                    "这是一次定向纠错重试。上一版回答未通过完整性/相关性质量评估，"
+                    "请重新核对问题并补齐资料明确支持的要点；原因题尤其不要只写变化结果或单一表层原因，"
+                    "应覆盖证据明确写出的原因并逐项引用。仍然只依据下列资料作答，不要补造资料。\n"
+                )
         prompt = (
             "仅基于以下资料回答用户问题。\n"
             "要求：\n"
@@ -3997,6 +4144,7 @@ def build_qa_graph(
             "7. 数字、百分比、年份和单位必须逐字依据资料；不同单位只有在精确换算后才可转换，不能四舍五入或擅自改单位\n"
             "8. 若候选 metadata 含 financial_facts，按相同 metric、report_period、statement_scope 绑定数值；简单财务事实必须原样复制 raw_value 和 unit，不能从同一证据的其他指标取数字\n"
             "9. 数字按字段逐项核对：有精确证据的字段照常回答并引用；缺证据或无法把字段与数字绑定的字段只写“该字段无法确定”，不得为它补数字，也不得因此否定同一回答中其他已被证据支持的字段；营业收入/营业总收入、研发投入合计/研发费用等近似概念不得互换\n"
+            "10. 若问题询问原因、为何或变动原因，先回答变化结论，再覆盖证据中明确写出的主要原因，并为每个原因逐项引用；不要编造证据未明确写出的原因，也不要只写变化结果或单一表层原因\n"
             f"{correction_block}"
             f"资料（每条含候选 metadata，口径字段缺失时按未提供处理）：\n{context_block}\n\n"
             f"问题：{state['question']}\n"

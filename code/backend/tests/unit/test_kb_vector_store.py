@@ -83,3 +83,90 @@ def test_upsert_replaces_same_doc(tmp_path):
     _add(store, "d1", "第二版", "default")  # 同 doc_id 同索引 0 → 覆盖
     docs, _ = store.list_docs(kb_id="default")
     assert [d for d in docs if d["doc_id"] == "d1"][0]["chunks"] == 1
+
+
+def test_snapshot_and_restore_document_version(tmp_path):
+    store = VectorStore(persist_dir=str(tmp_path))
+    store.add_chunks(
+        embeddings=[[0.1, 0.2, 0.3, 0.4]],
+        texts=["第一版"],
+        doc_id="d1",
+        doc_title="第一版",
+        source_type="pdf",
+        chunk_indices=[0],
+        kb_id="default",
+        extra_metadata=[{"page": 2, "page_start": 2, "section_path": "第二章"}],
+    )
+    snapshot = store.snapshot_doc("d1")
+    assert snapshot["metadatas"][0]["page_start"] == 2
+    assert snapshot["metadatas"][0]["section_path"] == "第二章"
+
+    store.add_chunks(
+        embeddings=[[0.9, 0.8, 0.7, 0.6], [0.6, 0.7, 0.8, 0.9]],
+        texts=["第二版一", "第二版二"],
+        doc_id="d1",
+        doc_title="第二版",
+        source_type="md",
+        chunk_indices=[0, 1],
+        kb_id="default",
+    )
+    assert set(store.get_doc_ids("d1")) == {"d1-0", "d1-1"}
+
+    assert store.restore_doc_snapshot(snapshot) == 1
+    restored = store.snapshot_doc("d1")
+    assert restored["ids"] == ["d1-0"]
+    assert restored["documents"] == ["第一版"]
+    assert restored["metadatas"][0]["page"] == 2
+    assert restored["metadatas"][0]["section_path"] == "第二章"
+
+
+def test_extra_metadata_and_related_chunks_are_kb_isolated(tmp_path):
+    store = VectorStore(persist_dir=str(tmp_path))
+    store.add_chunks(
+        embeddings=[[0.1, 0.2, 0.3, 0.4]] * 3,
+        texts=["父上下文", "子块一", "子块二"],
+        doc_id="rel1",
+        doc_title="关系文档",
+        source_type="md",
+        chunk_indices=[0, 1, 2],
+        kb_id="hr",
+        extra_metadata=[
+            {"chunk_type": "parent", "parent_id": "", "section_path": "采购 > 审批"},
+            {"chunk_type": "child", "parent_id": "rel1-0", "page_start": 2},
+            {"chunk_type": "child", "parent_id": "rel1-0", "page_start": 2, "labels": ["a", "b"]},
+        ],
+    )
+    store.add_chunks(
+        embeddings=[[0.1, 0.2, 0.3, 0.4]],
+        texts=["别的知识库"],
+        doc_id="other",
+        doc_title="别的文档",
+        source_type="md",
+        chunk_indices=[0],
+        kb_id="other",
+        extra_metadata=[{"chunk_type": "parent"}],
+    )
+
+    related = store.get_related_chunks(chunk_id="rel1-1", kb_id="hr")
+    assert [item["chunk_id"] for item in related] == ["rel1-0", "rel1-1", "rel1-2"]
+    assert related[2]["metadata"]["labels"] == "['a', 'b']"
+    assert store.get_related_chunks(chunk_id="rel1-1", kb_id="other") == []
+    assert store.get_chunk_by_id("rel1-1", kb_id="hr")["metadata"]["kb_id"] == "hr"
+
+
+def test_extra_metadata_requires_one_entry_per_chunk(tmp_path):
+    store = VectorStore(persist_dir=str(tmp_path))
+    try:
+        store.add_chunks(
+            embeddings=[[0.1, 0.2, 0.3, 0.4]],
+            texts=["一块"],
+            doc_id="bad",
+            doc_title="坏数据",
+            source_type="md",
+            chunk_indices=[0],
+            extra_metadata=[],
+        )
+    except ValueError as exc:
+        assert "extra_metadata" in str(exc)
+    else:
+        raise AssertionError("数量不一致的 extra_metadata 应显式失败")

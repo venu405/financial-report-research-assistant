@@ -1,2 +1,2 @@
-"""Domain services for the deep researcher workflow."""
+"""企业知识库与智能客服领域服务。"""
 

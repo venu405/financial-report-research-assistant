@@ -1,221 +1,87 @@
+"""企业知识库与智能客服配置。"""
+
+from __future__ import annotations
+
 import os
-from enum import Enum
-from typing import Any, Optional
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
-
-
-class SearchAPI(Enum):
-    PERPLEXITY = "perplexity"
-    TAVILY = "tavily"
-    DUCKDUCKGO = "duckduckgo"
-    SEARXNG = "searxng"
-    ADVANCED = "advanced"
+from pydantic import BaseModel, Field, field_validator
 
 
 class Configuration(BaseModel):
-    """Configuration options for the deep research assistant."""
+    """从环境变量加载知识库、问答模型和管理端配置。"""
 
-    # ===== 知识库管理（KB）配置 =====
-    kb_chroma_dir: str = Field(
-        default="./chroma_data",
-        title="Chroma Storage Dir",
-        description="Directory for Chroma vector store persistence",
-    )
-    kb_collection: str = Field(
-        default="enterprise_kb",
-        title="KB Collection",
-        description="Default Chroma collection name",
-    )
-    kb_embedding_model: str = Field(
-        default="bge-m3",
-        title="Embedding Model",
-        description="Local Ollama embedding model (bge-m3) or Zhipu model (embedding-3)",
-    )
-    kb_embedding_mode: str = Field(
-        default="bge_m3",
-        title="Embedding Mode",
-        description="bge_m3 (local Ollama, recommended) | zhipu (cloud API)",
-    )
-    kb_embedding_api_key: str = Field(
-        default="",
-        title="Embedding API Key",
-        description="Zhipu API key (only for mode=zhipu)",
-    )
-    kb_embedding_base_url: str = Field(
-        default="https://open.bigmodel.cn/api/paas/v4",
-        title="Embedding Base URL",
-        description="Zhipu OpenAI-compatible endpoint (only for mode=zhipu)",
-    )
-    kb_ollama_host: str = Field(
-        default="http://127.0.0.1:11434",
-        title="Ollama Host",
-        description="Local Ollama server URL (mode=bge_m3)",
-    )
-    kb_chunk_size: int = Field(
-        default=800,
-        title="Chunk Size",
-        description="Characters per chunk",
-    )
-    kb_chunk_overlap: int = Field(
-        default=100,
-        title="Chunk Overlap",
-        description="Overlap characters between chunks (keep context continuity)",
-    )
-    kb_top_k: int = Field(
-        default=5,
-        title="Retrieval Top-K",
-        description="Number of chunks to retrieve for Q&A",
-    )
+    kb_chroma_dir: str = Field(default="./chroma_data")
+    kb_collection: str = Field(default="enterprise_kb")
+    kb_vector_backend: Literal["chroma", "qdrant"] = Field(default="chroma")
+    kb_qdrant_url: str = Field(default="http://127.0.0.1:6333")
+    kb_qdrant_collection: str = Field(default="enterprise_kb")
+    kb_qdrant_api_key: str | None = Field(default=None)
+    kb_qdrant_vector_size: int = Field(default=1024, gt=0)
+    kb_qdrant_timeout: float = Field(default=10, gt=0)
+    kb_qdrant_create_if_missing: bool = Field(default=False)
+    kb_embedding_model: str = Field(default="bge-m3")
+    kb_embedding_mode: str = Field(default="bge_m3")
+    kb_ollama_host: str = Field(default="http://127.0.0.1:11434")
+    kb_chunk_size: int = Field(default=800, ge=100)
+    kb_chunk_overlap: int = Field(default=100, ge=0)
+    kb_chunk_profile: Literal["legacy", "structured"] = Field(default="structured")
+    kb_top_k: int = Field(default=5, ge=1)
+    # RAG V2：先扩大召回，再由重排器筛到 kb_top_k。
+    kb_recall_k: int = Field(default=20, ge=1)
+    kb_max_hits_per_doc: int = Field(default=3, ge=1)
+    kb_min_similarity: float = Field(default=0.0, ge=0.0, le=1.0)
+    kb_rerank_mode: str = Field(default="llm")
+    kb_rerank_model: str = Field(default="BAAI/bge-reranker-base")
+    # 父子切片保留更完整的章节上下文；功能可通过环境变量关闭以便回滚。
+    kb_parent_child_enabled: bool = Field(default=False)
+    kb_parent_chunk_size: int = Field(default=1600, ge=200)
+    kb_neighbor_expansion: int = Field(default=1, ge=0, le=3)
+    app_env: str = Field(default="development")
+
     cors_origins: str = Field(
-        default="http://localhost:5173,http://localhost:5174,http://localhost:3000",
-        title="CORS Origins",
-        description="逗号分隔的允许跨域来源（生产必须配具体域名，禁用 *；* + credentials 浏览器会拒）",
+        default=(
+            "http://localhost:5173,http://localhost:5174,http://localhost:3000,"
+            "http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:3000"
+        )
     )
     admin_api_key: str = Field(
         default="",
-        title="Admin API Key",
-        description="深度研究接口的鉴权 key（可选）。配置后 /research* 接口要求 X-API-Key 头匹配；留空则不启用",
-    )
-    research_token_budget: int = Field(
-        default=100_000,
-        title="Research Token Budget",
-        description="单次深度研究的 token 消耗上限（默认 100K ≈ ¥0.02 flash）。超限则强制终止研究，防止费用失控。可通过 KB_RESEARCH_TOKEN_BUDGET 环境变量覆盖",
+        description="管理接口使用的 X-API-Key；生产环境必须配置",
     )
 
-    max_web_research_loops: int = Field(
-        default=3,
-        title="Research Depth",
-        description="Number of research iterations to perform",
-    )
-    max_concurrent_workers: int = Field(
-        default=3,
-        title="Max Concurrent Workers",
-        description="Maximum number of tasks running in parallel (rate-limit protection)",
-    )
-    max_concurrent_searches: int = Field(
-        default=3,
-        title="Max Concurrent Searches",
-        description="P1: request-level cap on simultaneous search API calls (finer than task-level)",
-    )
-    local_llm: str = Field(
-        default="llama3.2",
-        title="Local Model Name",
-        description="Name of the locally hosted LLM (Ollama/LMStudio)",
-    )
-    llm_provider: str = Field(
-        default="ollama",
-        title="LLM Provider",
-        description="Provider identifier (ollama, lmstudio, or custom)",
-    )
-    search_api: SearchAPI = Field(
-        default=SearchAPI.DUCKDUCKGO,
-        title="Search API",
-        description="Web search API to use",
-    )
-    enable_notes: bool = Field(
-        default=True,
-        title="Enable Notes",
-        description="Whether to store task progress in NoteTool",
-    )
-    notes_workspace: str = Field(
-        default="./notes",
-        title="Notes Workspace",
-        description="Directory for NoteTool to persist task notes",
-    )
-    fetch_full_page: bool = Field(
-        default=True,
-        title="Fetch Full Page",
-        description="Include the full page content in the search results",
-    )
-    ollama_base_url: str = Field(
-        default="http://localhost:11434",
-        title="Ollama Base URL",
-        description="Base URL for Ollama API (without /v1 suffix)",
-    )
-    lmstudio_base_url: str = Field(
-        default="http://localhost:1234/v1",
-        title="LMStudio Base URL",
-        description="Base URL for LMStudio OpenAI-compatible API",
-    )
-    strip_thinking_tokens: bool = Field(
-        default=True,
-        title="Strip Thinking Tokens",
-        description="Whether to strip <think> tokens from model responses",
-    )
-    use_tool_calling: bool = Field(
-        default=False,
-        title="Use Tool Calling",
-        description="Use tool calling instead of JSON mode for structured output",
-    )
-    llm_api_key: Optional[str] = Field(
+    llm_api_key: str | None = Field(default=None)
+    llm_base_url: str | None = Field(default=None)
+    llm_model_id: str | None = Field(default=None)
+    llm_reasoning_effort: Literal["none", "low", "medium", "high"] | None = Field(
         default=None,
-        title="LLM API Key",
-        description="Optional API key when using custom OpenAI-compatible services",
+        description="可选的 OpenAI 兼容 reasoning_effort；未设置时保持默认请求形状。",
     )
-    llm_base_url: Optional[str] = Field(
-        default=None,
-        title="LLM Base URL",
-        description="Optional base URL when using custom OpenAI-compatible services",
-    )
-    llm_model_id: Optional[str] = Field(
-        default=None,
-        title="LLM Model ID",
-        description="Optional model identifier for custom OpenAI-compatible services",
-    )
+
+    @field_validator("llm_reasoning_effort", mode="before")
+    @classmethod
+    def _normalize_llm_reasoning_effort(cls, value: Any) -> Any:
+        """规范化本地兼容接口的思考强度，空字符串等同于未设置。"""
+        if value is None:
+            return None
+        normalized = str(value).strip().lower()
+        if not normalized:
+            return None
+        if normalized not in {"none", "low", "medium", "high"}:
+            raise ValueError(
+                "LLM_REASONING_EFFORT must be one of: none, low, medium, high"
+            )
+        return normalized
 
     @classmethod
-    def from_env(cls, overrides: Optional[dict[str, Any]] = None) -> "Configuration":
-        """Create a configuration object using environment variables and overrides."""
+    def from_env(cls, overrides: dict[str, Any] | None = None) -> "Configuration":
+        """读取同名大写环境变量，并允许调用方覆盖指定字段。"""
 
-        raw_values: dict[str, Any] = {}
-
-        # Load values from environment variables based on field names
-        for field_name in cls.model_fields.keys():
-            env_key = field_name.upper()
-            if env_key in os.environ:
-                raw_values[field_name] = os.environ[env_key]
-
-        # Additional mappings for explicit env names
-        env_aliases = {
-            "local_llm": os.getenv("LOCAL_LLM"),
-            "llm_provider": os.getenv("LLM_PROVIDER"),
-            "llm_api_key": os.getenv("LLM_API_KEY"),
-            "llm_model_id": os.getenv("LLM_MODEL_ID"),
-            "llm_base_url": os.getenv("LLM_BASE_URL"),
-            "lmstudio_base_url": os.getenv("LMSTUDIO_BASE_URL"),
-            "ollama_base_url": os.getenv("OLLAMA_BASE_URL"),
-            "max_web_research_loops": os.getenv("MAX_WEB_RESEARCH_LOOPS"),
-            "fetch_full_page": os.getenv("FETCH_FULL_PAGE"),
-            "strip_thinking_tokens": os.getenv("STRIP_THINKING_TOKENS"),
-            "use_tool_calling": os.getenv("USE_TOOL_CALLING"),
-            "search_api": os.getenv("SEARCH_API"),
-            "enable_notes": os.getenv("ENABLE_NOTES"),
-            "notes_workspace": os.getenv("NOTES_WORKSPACE"),
-            "research_token_budget": os.getenv("KB_RESEARCH_TOKEN_BUDGET"),
-        }
-
-        for key, value in env_aliases.items():
+        values: dict[str, Any] = {}
+        for field_name in cls.model_fields:
+            value = os.getenv(field_name.upper())
             if value is not None:
-                raw_values.setdefault(key, value)
-
+                values[field_name] = value
         if overrides:
-            for key, value in overrides.items():
-                if value is not None:
-                    raw_values[key] = value
-
-        return cls(**raw_values)
-
-    def sanitized_ollama_url(self) -> str:
-        """Ensure Ollama base URL includes the /v1 suffix required by OpenAI clients."""
-
-        base = self.ollama_base_url.rstrip("/")
-        if not base.endswith("/v1"):
-            base = f"{base}/v1"
-        return base
-
-    def resolved_model(self) -> Optional[str]:
-        """Best-effort resolution of the model identifier to use."""
-
-        return self.llm_model_id or self.local_llm
-
+            values.update({key: value for key, value in overrides.items() if value is not None})
+        return cls(**values)

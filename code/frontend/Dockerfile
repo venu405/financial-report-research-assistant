@@ -1,15 +1,18 @@
-FROM node:20-alpine
+FROM node:20-alpine AS build
 
 WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
 
-# 装依赖（独立层，利用缓存）
-COPY package.json package-lock.json* ./
-RUN npm install
-
-# 拷贝源码
 COPY . .
+ARG VITE_API_BASE_URL=/api
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+RUN npm run build
 
-EXPOSE 5174
+FROM nginx:1.27-alpine
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/dist /usr/share/nginx/html
+EXPOSE 80
 
-# vite dev server，--host 暴露给宿主机访问
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5174"]
+HEALTHCHECK --interval=15s --timeout=3s --start-period=5s --retries=5 \
+  CMD wget -q -O /dev/null http://127.0.0.1/healthz || exit 1
