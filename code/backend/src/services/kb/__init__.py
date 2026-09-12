@@ -12,8 +12,8 @@
  3. 容错：解析失败不中断整体入库，记录 notices
 """
 
-from .financial_metric_store import FinancialMetricStore
 from .company_analysis import analyze_company
+from .financial_metric_store import FinancialMetricStore
 from .peer_comparison import compare_companies
 from .research_export import render_company_analysis, render_peer_comparison
 

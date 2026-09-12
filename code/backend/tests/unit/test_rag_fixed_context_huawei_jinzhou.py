@@ -21,7 +21,6 @@ from services.kb.reranker import NoopReranker
 from services.kb.retriever import HybridRetriever
 from tests.mocks import FakeEmbedding, FakeLLM
 
-
 HUAWEI_QUESTION = "吉林华微电子2024年营业收入是多少？"
 JINZHOU_QUESTION = (
     "锦州港2024年年报披露的2025年经营计划中，计划营业收入是多少？"

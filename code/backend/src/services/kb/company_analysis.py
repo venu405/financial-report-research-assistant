@@ -2,11 +2,10 @@
 from __future__ import annotations
 
 import re
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 from .financial_metric_store import FinancialMetricStore
-
 
 METRIC_ORDER = (
     "revenue",

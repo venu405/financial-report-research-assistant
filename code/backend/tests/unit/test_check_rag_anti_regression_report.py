@@ -6,7 +6,6 @@ import pytest
 
 from scripts.check_rag_anti_regression_report import ReportCheckError, check_report
 
-
 CASE_IDS = (
     "real_jinzhou_port_2025_plan_not_promise",
     "real_longyu_2024_revenue",

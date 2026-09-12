@@ -19,6 +19,13 @@ CURRENT_LINEAGE = PROJECT_ROOT / (
     "qdrant-full-185-kb_full_codex_20260830_24c7407e-20260903T111002919444Z.lineage.json"
 )
 
+# 31/36 基线源报告与 lineage 属于本地复现资产，未随公开仓库提供（见 README
+# “评测与验证”）；恢复本地资产后这些用例会自动恢复运行。
+pytestmark = pytest.mark.skipif(
+    not CURRENT_REPORT.is_file() or not CURRENT_LINEAGE.is_file(),
+    reason="31/36 基线源报告未随公开仓库提供（本地复现资产）",
+)
+
 
 def _load_current_report() -> dict:
     return json.loads(CURRENT_REPORT.read_text(encoding="utf-8"))

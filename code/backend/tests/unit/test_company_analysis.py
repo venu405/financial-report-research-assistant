@@ -6,7 +6,6 @@ from pathlib import Path
 from services.kb.company_analysis import analyze_company
 from services.kb.financial_metric_store import FinancialMetricStore
 
-
 METRICS = (
     "revenue",
     "net_profit_parent",

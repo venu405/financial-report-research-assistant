@@ -16,7 +16,6 @@ from services.kb.qa_graph import (
     _verify_numeric_claims,
 )
 
-
 SHENLIAN_CASH_QUESTION = "申联生物2025年上半年经营活动现金净流量是多少？"
 SHENLIAN_CASH_ANSWER = (
     "申联生物2025年上半年经营活动产生的现金流量净额为-39,389,053.48元。[1]"

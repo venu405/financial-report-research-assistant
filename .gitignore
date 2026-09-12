@@ -77,6 +77,7 @@ Thumbs.db
 **/server.*.log
 **/verify-report.json
 **/Modelfile*
+!code/backend/Modelfile.qwen35-4b
 **/_upload_*
 code/backend/*.docx
 

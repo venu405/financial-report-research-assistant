@@ -1,11 +1,10 @@
 """用户选定公司的同期间确定性指标对比，不推断同行关系。"""
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Sequence
 
 from .financial_metric_store import FinancialMetricStore
-
 
 METRIC_ORDER = (
     "revenue",

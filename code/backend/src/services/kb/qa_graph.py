@@ -1948,6 +1948,11 @@ def _verify_numeric_claims(
         relevant_facts = [fact for fact in facts if metric and fact.metric == metric]
         structured_supported = False
         structured_conflict = False
+        # 结构化事实对 claim 口径的明确否定：claim 带显式口径时，若同指标、
+        # 同期间的完整结构化事实存在且没有一个支持该 claim，则口径层面的
+        # 裁决已经作出——正文里口径未知的同值数字（旧索引/未标注行）不能
+        # 把它救回，否则"母公司100万"会被合并口径的正文数字放行。
+        scope_contradicted = False
         if relevant_facts:
             matching_facts = _facts_for_question(relevant_facts, question)
             if matching_facts:
@@ -1975,6 +1980,26 @@ def _verify_numeric_claims(
                         )
                         for fact in complete
                     )
+                    if (
+                        claim.statement_scope
+                        and not structured_supported
+                        and complete
+                        and not any(
+                            _fact_supports_claim(claim, fact) for fact in complete
+                        )
+                    ):
+                        scope_facts = [
+                            fact
+                            for fact in complete
+                            if fact.statement_scope == claim.statement_scope
+                            and (
+                                not claim.report_period
+                                or _normalize_report_period(fact.report_period)
+                                == _normalize_report_period(claim.report_period)
+                            )
+                        ]
+                        if scope_facts:
+                            scope_contradicted = True
 
         evidence_claim = claim
         if metric and not claim.metric:
@@ -2028,7 +2053,9 @@ def _verify_numeric_claims(
         if structured_conflict and not _table_evidence_has_column_context(records):
             unsupported.append(claim)
             continue
-        if not structured_supported and not text_supported:
+        if not structured_supported and (
+            not text_supported or scope_contradicted
+        ):
             unsupported.append(claim)
     if _trace_claims:
         diagnostic_trace.add_stage(

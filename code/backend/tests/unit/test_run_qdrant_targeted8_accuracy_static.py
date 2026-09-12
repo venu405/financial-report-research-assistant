@@ -1,6 +1,7 @@
-from pathlib import Path
 import re
+from pathlib import Path
 
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "run_qdrant_targeted8_accuracy_20260902.ps1"
@@ -121,6 +122,10 @@ def test_evaluator_receives_absolute_script_and_testset_paths():
 
 
 def test_run_note_states_scope_and_no_side_effects():
+    if not REPORT.is_file():
+        pytest.skip(
+            f"运行说明 {REPORT.name} 属于本地复现资产，未随公开仓库提供"
+        )
     note = REPORT.read_text(encoding="utf-8")
     for case_id in CASE_IDS:
         assert case_id in note

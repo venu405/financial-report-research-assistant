@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-import main as main_mod
 from tests.test_api_kb import _make_client
 
 

@@ -88,7 +88,7 @@
   },
   "source_lineage": {
     "path": "code/backend/reports/qdrant-full36-after-raw-narrative-fix-venv-20260906.lineage.json",
-    "sha256": "7cade1b041aa4999f753519e9ff297bf6e37ec05165b0fb127deea9c5865f1ca"
+    "sha256": "44f99eef7184a226c0e38bb73da93d8b5105526144eaf1c68b7d44116f20a584"
   },
   "testset": {
     "path": "code/backend/testsets/rag_real_quality_v2.yaml",

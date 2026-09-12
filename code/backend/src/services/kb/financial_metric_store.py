@@ -9,7 +9,6 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-
 METRIC_CODES = {
     "revenue",
     "net_profit_parent",
