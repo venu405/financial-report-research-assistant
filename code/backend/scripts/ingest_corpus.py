@@ -345,14 +345,16 @@ def check_service(
         response = session.get(endpoint, timeout=(10.0, min(timeout, 30.0)))
     except Exception as exc:
         raise ServiceError(
-            f"服务健康检查失败：无法连接 {endpoint}。请先运行现有“一键启动前后端.cmd”，"
+            f"服务健康检查失败：无法连接 {endpoint}。请先启动后端服务"
+            f"（docker compose up --build，或本地 uvicorn main:app --app-dir src），"
             f"确认后端已启动；原始错误：{type(exc).__name__}: {exc}"
         ) from exc
     if not 200 <= int(response.status_code) < 300:
         detail = _safe_response_detail(response)
         raise ServiceError(
             f"服务健康检查失败：{endpoint} 返回 HTTP {response.status_code}，{detail}。"
-            "请先运行现有“一键启动前后端.cmd”或检查后端日志。"
+            "请先启动后端服务（docker compose up --build，或本地 uvicorn main:app --app-dir src）"
+            "或检查后端日志。"
         )
 
 

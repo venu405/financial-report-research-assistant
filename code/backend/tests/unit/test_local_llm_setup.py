@@ -1,11 +1,8 @@
-"""本地模型部署脚本、依赖和 Windows 启动入口的静态安全回归测试。"""
+"""本地模型部署脚本、依赖和静态安全回归测试。"""
 
-import os
-import subprocess
 from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parents[2]
-PROJECT_ROOT = BACKEND.parents[1]
 
 
 def _read(path: Path) -> str:
@@ -51,66 +48,6 @@ def test_setup_script_is_bom_encoded_idempotent_and_runs_both_smokes():
     assert "exit 1" in script
     assert "LLM_API_KEY" not in script
     assert "your-api-key" not in script.lower()
-
-
-def test_local_deployment_cmd_is_utf8_synchronous_and_forwards_arguments():
-    cmd = _read(PROJECT_ROOT / "一键部署本地模型.cmd")
-
-    assert "chcp 65001 >nul" in cmd
-    assert 'set "ROOT_DIR=%~dp0"' in cmd
-    assert 'call powershell.exe' in cmd.lower()
-    assert "setup_local_llm.ps1" in cmd
-    assert '"%SCRIPT%" %*' in cmd
-    assert "start " not in cmd.lower()
-    assert "pause" not in cmd.lower()
-    assert "taskkill" not in cmd.lower()
-    assert "exit /b" in cmd.lower()
-
-
-def test_local_deployment_cmd_really_executes_under_cmd_without_parser_errors():
-    """用 PowerShell -? 做无副作用冒烟，捕捉 CMD 截断命令的真实回归。"""
-    if os.name != "nt":
-        return
-
-    path = PROJECT_ROOT / "一键部署本地模型.cmd"
-    result = subprocess.run(
-        ["cmd.exe", "/d", "/c", "call", str(path), "-?"],
-        cwd=PROJECT_ROOT,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=30,
-        check=False,
-    )
-    combined = f"{result.stdout}\n{result.stderr}"
-    assert result.returncode == 0, combined
-    assert "not recognized" not in combined.lower()
-    assert "[INFO]" in combined
-
-
-def test_local_start_cmd_sets_only_child_process_local_model_and_rejects_port_conflict():
-    cmd = _read(PROJECT_ROOT / "一键启动本地模型版.cmd")
-
-    for setting in (
-        "LLM_BASE_URL=http://127.0.0.1:11434/v1",
-        "LLM_API_KEY=ollama",
-        "LLM_MODEL_ID=enterprise-kb-qwen35:4b",
-        "LLM_REASONING_EFFORT=none",
-        "KB_RERANK_MODE=crossencoder",
-        "KB_RERANK_MODEL=BAAI/bge-reranker-base",
-        "LLM_TIMEOUT=180",
-    ):
-        assert f'set "{setting}"' in cmd
-    assert "Connect('127.0.0.1',8000)" in cmd
-    assert "无法保证" in cmd and "本地模型" in cmd
-    assert "一键启动前后端.cmd" in cmd
-    assert '"%ROOT_DIR%\一键启动前后端.cmd" %*' in cmd
-    assert "chcp 65001 >nul" in cmd
-    assert 'set "ROOT_DIR=%~dp0"' in cmd
-    assert "start " not in cmd.lower()
-    assert "taskkill" not in cmd.lower()
-    assert "pause" not in cmd.lower()
 
 
 def test_env_and_ops_explain_switchback_limits_and_full_evaluation():

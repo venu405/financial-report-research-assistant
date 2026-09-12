@@ -167,15 +167,17 @@ JSON 大小不超过 4096 字节。
 
 ## 9. 一键增量入库
 
-首次或需要重建时，在后端服务已经启动并且 `/readyz` 正常的前提下运行项目根目录的
-`一键增量入库.cmd`。默认读取 `code/backend/testsets/rag_real_quality_v2.yaml`、知识库
-`cninfo_report` 和 `http://127.0.0.1:8000`，用户传入的参数会继续传给脚本：
+首次或需要重建时，在后端服务已经启动并且 `/readyz` 正常的前提下，运行入库脚本（参数原样透传）：
 
-```text
-一键增量入库.cmd --dry-run
-一键增量入库.cmd --user-id <有写权限的用户ID>
-一键增量入库.cmd --force
+```bash
+cd code/backend
+PYTHONPATH=src .venv/Scripts/python.exe scripts/ingest_corpus.py --dry-run
+PYTHONPATH=src .venv/Scripts/python.exe scripts/ingest_corpus.py --user-id <有写权限的用户ID>
+PYTHONPATH=src .venv/Scripts/python.exe scripts/ingest_corpus.py --force
 ```
+
+未设置 `KB_INGEST_TOKEN` / `KB_API_TOKEN` / `KB_INGEST_USER_ID` / `KB_USER_ID` 时，
+脚本使用本地开发身份 `KB_INGEST_USER_ID=admin`。
 
 脚本默认把可续跑清单写到 `code/backend/.rag_state/ingest_corpus_state.json`。每份 PDF
 都会流式算 SHA-256；非 `--dry-run` 时，脚本会先在 `/readyz` 后分页读取目标知识库的完整
@@ -186,18 +188,20 @@ chunks<=0 均会失败并要求人工核对。失败项会保留在清单中，�
 不算成功，需先核对清单和服务端文档。`--directory` 可改为递归扫描目录，`--testset`
 可改为其他题集，`--state` 可指定另一份清单，`--ocr-mode local|baidu|auto` 可选择识别方式。
 
-如果健康检查失败，先运行现有的 `一键启动前后端.cmd`，确认后端已就绪后再重试。规则指纹
+如果健康检查失败，先启动前后端（`docker compose up --build`，或本地运行 uvicorn），
+确认后端已就绪后再重试。规则指纹
 变化只会给出“规则已变化，是否用 `--force` 重建”的提醒，不会自动全量重建。状态清单必须
 定期备份；丢失后脚本不会凭标题自动认领服务端文档，遇到同名文档会失败并提示恢复清单或
 人工核对。不要手工覆盖状态清单；状态每完成一份都会用临时文件替换方式保存，并记录
 `last_run.run_status`、计划数、完成数和各动作计数，进程中断后可从最近一次有效快照继续。
 
-## 10. 本地模型一键部署、切换与回滚
+## 10. 本地模型部署、切换与回滚
 
-本项目提供两个根目录入口。首次部署或需要刷新别名时运行：
+首次部署或需要刷新别名时，在后端虚拟环境已创建的前提下运行：
 
-```text
-一键部署本地模型.cmd
+```bash
+cd code/backend
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/setup_local_llm.ps1
 ```
 
 它会检查 Ollama 和 `code/backend/.venv`，幂等拉取 `qwen3.5:4b`，依据受版本控制的
@@ -216,20 +220,26 @@ ollama list
 ollama ps
 ```
 
-部署成功后，使用本地模型启动：
+部署成功后，在启动进程的 shell 中设置以下环境变量（只影响当前进程及其子进程，
+不改写 `.env`），再启动前后端：
 
-```text
-一键启动本地模型版.cmd
+```bash
+export LLM_BASE_URL=http://127.0.0.1:11434/v1
+export LLM_API_KEY=ollama
+export LLM_MODEL_ID=enterprise-kb-qwen35:4b
+export LLM_REASONING_EFFORT=none
+export KB_RERANK_MODE=crossencoder
+export KB_RERANK_MODEL=BAAI/bge-reranker-base
+export LLM_TIMEOUT=180
+docker compose up --build   # 或本地 uvicorn main:app --app-dir src
 ```
 
-该入口只用 `setlocal` 在当前 CMD 及其子进程设置本地 LLM、crossencoder 和超时配置，不改写
-`.env`，并同步调用现有 `一键启动前后端.cmd`。如果 8000 端口已有后端，它会明确拒绝启动，
-因为无法保证现有进程已经切换到本地配置；脚本不会自动结束任何用户进程。启动前请先确认
-`enterprise-kb-qwen35:4b` 已创建。
+启动前请先确认 `enterprise-kb-qwen35:4b` 已创建。如果 8000 端口已有后端，
+应先关闭旧进程再启动，因为无法保证现有进程已经切换到本地配置。
 
-回滚 DeepSeek 时，先按现有运维流程关闭本地启动的项目进程，再在新窗口使用原来的
-`一键启动前后端.cmd` 和 `.env` 中的 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL_ID` 配置。
-本地启动入口的临时环境变量不会写回 DeepSeek 配置，也不会替换密钥。回滚后应检查 `/readyz`
+回滚 DeepSeek 时，先按现有运维流程关闭本地启动的项目进程，再使用 `.env` 中的
+`LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL_ID` 配置重新启动；不要把上面的本地模型
+环境变量带进启动 shell。回滚后应检查 `/readyz`
 和一次问答，确认服务实际读取的是 DeepSeek 地址。
 
 安装/冒烟成功不代表问答质量达标。两边代码合并后，必须运行完整 36 题真实评测并保存报告，

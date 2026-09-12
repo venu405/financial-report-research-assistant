@@ -273,7 +273,9 @@ def test_health_failure_is_nonzero_and_explains_how_to_start(tmp_path, capsys):
             return FakeResponse(503, {"detail": "依赖不可用"})
 
     assert corpus.run(_args(tmp_path), session=UnreadySession()) == 2
-    assert "一键启动前后端.cmd" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "服务健康检查失败" in err
+    assert "docker compose up --build" in err
     assert not (tmp_path / "state.json").exists()
 
 
@@ -557,21 +559,3 @@ def test_cli_initial_state_write_failure_is_nonzero_and_keeps_old_state(
     assert state_path.read_text(encoding="utf-8") == old
     assert not [call for call in session.calls if call[0] in {"post", "put"}]
     assert "未执行任何入库请求" in capsys.readouterr().err
-
-
-def test_cmd_has_utf8_identity_defaults_sync_wait_passthrough_and_exit_code():
-    cmd_path = Path(__file__).resolve().parents[4] / "一键增量入库.cmd"
-    text = cmd_path.read_bytes().decode("utf-8-sig")
-
-    assert "chcp 65001 >nul" in text
-    assert "set \"ROOT_DIR=%~dp0\"" in text
-    assert '"%PYTHON_EXE%" "%SCRIPT%" %*' in text
-    assert 'set "EXIT_CODE=%ERRORLEVEL%"' in text
-    assert "exit /b %EXIT_CODE%" in text
-    assert "set \"KB_INGEST_USER_ID=admin\"" in text
-    assert "No ingest identity found" in text
-    assert "if not defined KB_INGEST_TOKEN" in text
-    assert "if not defined KB_API_TOKEN" in text
-    assert "if not defined KB_INGEST_USER_ID" in text
-    assert "if not defined KB_USER_ID" in text
-    assert "start " not in text.lower()
