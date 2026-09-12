@@ -84,7 +84,7 @@
   },
   "source_report": {
     "path": "code/backend/reports/qdrant-full36-after-raw-narrative-fix-venv-20260906.json",
-    "sha256": "e345a22c24aab375c80d9b1722cb182b673e427313a0bd839fddf50679f37b2a"
+    "sha256": "43cef1899be2a5f0f70578d9c09e0778f90ba370c61875ced6f26143cd3c78b4"
   },
   "source_lineage": {
     "path": "code/backend/reports/qdrant-full36-after-raw-narrative-fix-venv-20260906.lineage.json",

@@ -1,0 +1,3 @@
+# 以下资产参与 SHA256 基线校验，固定 LF 保证跨平台哈希一致
+code/backend/reports/*.json text eol=lf
+code/backend/testsets/** text eol=lf
