@@ -44,9 +44,12 @@ onMounted(loadThreads);
         v-model="userToken"
         class="token"
         placeholder="API Token（kb_ 开头）"
-        @change="onCredentialChange"
+        @keyup.enter="onCredentialChange"
       />
-      <button v-if="userToken" class="logout" @click="logout">登出</button>
+      <div class="auth-actions">
+        <button class="auth-btn" :disabled="!userToken" @click="onCredentialChange">登入</button>
+        <button class="auth-btn" :disabled="!userToken" @click="logout">退出</button>
+      </div>
     </div>
 
     <!-- 当前用户自己的会话列表 -->
@@ -112,7 +115,9 @@ onMounted(loadThreads);
   background: var(--color-bg);
   color: var(--color-ink);
 }
-.logout {
+.auth-actions { display: flex; gap: 8px; }
+.auth-btn {
+  flex: 1;
   border: 1px solid var(--color-border);
   background: var(--color-bg);
   border-radius: var(--radius-md);
@@ -121,6 +126,8 @@ onMounted(loadThreads);
   font-size: var(--text-sm);
   color: var(--color-charcoal);
 }
+.auth-btn:hover:not(:disabled) { background: var(--color-bg-warm); }
+.auth-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .threads {
   display: flex; flex-direction: column; gap: 4px; padding: 0 8px;
   flex: 1; overflow-y: auto; min-height: 0;
