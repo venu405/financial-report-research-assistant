@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted } from "vue";
 import {
-  kbs, currentKb, userToken, onSwitchKb, onCredentialChange, logout,
+  kbs, currentKb, userToken, onSwitchKb, onCredentialChange, login, logout,
   threads, threadId, loadThreads, switchThread, deleteThread,
 } from "./useKbState";
 
@@ -44,10 +44,10 @@ onMounted(loadThreads);
         v-model="userToken"
         class="token"
         placeholder="API Token（kb_ 开头）"
-        @keyup.enter="onCredentialChange"
+        @keyup.enter="login"
       />
       <div class="auth-actions">
-        <button class="auth-btn" :disabled="!userToken" @click="onCredentialChange">登入</button>
+        <button class="auth-btn" :disabled="!userToken" @click="login">登入</button>
         <button class="auth-btn" :disabled="!userToken" @click="logout">退出</button>
       </div>
     </div>

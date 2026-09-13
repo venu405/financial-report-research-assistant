@@ -16,6 +16,9 @@
         <DocsView v-else-if="tab === 'docs'" />
       </div>
     </main>
+
+    <!-- 全局轻提示（登入成功/失败等） -->
+    <div v-if="notice" class="toast" role="status">{{ notice }}</div>
   </div>
 </template>
 
@@ -26,7 +29,7 @@ import ChatView from "./ChatView.vue";
 import DocsView from "./DocsView.vue";
 import CompanyAnalysisView from "./CompanyAnalysisView.vue";
 import ResearchPlaceholder from "./ResearchPlaceholder.vue";
-import { initKb } from "./useKbState";
+import { initKb, notice } from "./useKbState";
 
 const tab = ref("chat");
 const titles: Record<string, string> = {
@@ -77,5 +80,19 @@ onMounted(initKb);
 .page-body {
   flex: 1;
   overflow: auto;
+}
+
+.toast {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--color-ink);
+  color: var(--color-bg);
+  padding: 10px 20px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  z-index: 1000;
 }
 </style>

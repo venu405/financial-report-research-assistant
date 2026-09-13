@@ -118,6 +118,15 @@ export const currentKb = ref(localStorage.getItem("kb_id") || "default");
 export const userToken = ref(sessionStorage.getItem("kb_api_token") || sessionStorage.getItem("kb_user_id") || "");
 export const currentUserRole = ref("");
 
+// 全局轻提示：showNotice 设置文案，约 2.5 秒后自动消失。
+export const notice = ref("");
+let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+export function showNotice(message: string) {
+  notice.value = message;
+  if (noticeTimer) clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => { notice.value = ""; }, 2500);
+}
+
 export const docs = ref<Doc[]>([]);
 export const uploadMsg = ref("");
 export const uploadErr = ref("");
@@ -625,6 +634,21 @@ export function onCredentialChange() {
   loadDocs();
   void loadConversationHistoryAfterThreadSync();
   void loadCurrentUser();
+}
+
+// 显式登入：保存凭据后用 /kb/me 验证 token，给出成功/失败提示。
+export async function login() {
+  if (!userToken.value) return;
+  saveUserCredential(userToken.value);
+  loadKbs();
+  loadDocs();
+  void loadConversationHistoryAfterThreadSync();
+  await loadCurrentUser();
+  if (currentUserRole.value) {
+    showNotice(`登入成功（${currentUserRole.value}）`);
+  } else {
+    showNotice("登入失败：token 无效或已过期");
+  }
 }
 
 export function newSession() {
