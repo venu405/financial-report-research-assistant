@@ -10,10 +10,13 @@
         <p>{{ tabDescription }}</p>
       </header>
       <div class="page-body">
-        <ChatView v-if="tab === 'chat'" />
-        <CompanyAnalysisView v-else-if="tab === 'analysis'" />
-        <ResearchPlaceholder v-else-if="tab === 'peers'" />
-        <DocsView v-else-if="tab === 'docs'" />
+        <template v-if="tab !== 'peers'">
+          <ChatView v-if="tab === 'chat'" />
+          <CompanyAnalysisView v-else-if="tab === 'analysis'" />
+          <DocsView v-else-if="tab === 'docs'" />
+        </template>
+        <!-- 同业对比用 v-show 保持挂载，切换标签后表单与结果不丢失 -->
+        <ResearchPlaceholder v-show="tab === 'peers'" />
       </div>
     </main>
 

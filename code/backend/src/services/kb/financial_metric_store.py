@@ -221,6 +221,15 @@ class FinancialMetricStore:
         ).fetchall()
         return [self._row(row) for row in rows], total
 
+    def distinct_company_names(self, *, kb_id: str) -> list[str]:
+        """返回知识库内出现过的公司全称（去重排序），供简称解析用。"""
+        rows = self._conn.execute(
+            "SELECT DISTINCT company_name FROM financial_metrics "
+            "WHERE kb_id=? AND company_name<>'' ORDER BY company_name",
+            [_require_text(kb_id, "kb_id")],
+        ).fetchall()
+        return [str(row[0]) for row in rows]
+
     def update(self, metric_id: int, patch: dict[str, Any], *, actor: str, reason: str) -> dict[str, Any] | None:
         actor_text = _require_text(actor, "actor")
         reason_text = _require_text(reason, "reason")

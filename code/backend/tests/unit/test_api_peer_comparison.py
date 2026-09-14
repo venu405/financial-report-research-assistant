@@ -61,10 +61,10 @@ def test_peer_comparison_http_contract_supports_repeated_filters(monkeypatch, tm
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["report_period"] == "2024"
+    assert body["report_period"] == "2024年度"
     assert body["companies"] == [
-        {"name": "Alpha", "code": "Alpha-code", "found": True},
-        {"name": "Beta", "code": "Beta-code", "found": True},
+        {"name": "Alpha", "queried_name": "Alpha", "code": "Alpha-code", "found": True},
+        {"name": "Beta", "queried_name": "Beta", "code": "Beta-code", "found": True},
     ]
     assert [metric["metric_code"] for metric in body["metrics"]] == [
         "revenue",

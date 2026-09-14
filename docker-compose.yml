@@ -69,7 +69,8 @@ services:
         VITE_API_BASE_URL: /api
     container_name: kb-frontend
     ports:
-      - "5174:80"
+      # Windows 当前保留了 5141-5240 端口段，使用 3000 作为本机访问端口。
+      - "3000:80"
     depends_on:
       backend:
         condition: service_healthy

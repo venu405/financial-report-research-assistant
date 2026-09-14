@@ -8,6 +8,9 @@ from services.kb.peer_comparison import (
     compare_companies,
     normalize_company_names,
     normalize_metric_codes,
+    normalize_report_period_input,
+    report_period_candidates,
+    resolve_company_name,
 )
 
 
@@ -91,7 +94,12 @@ def test_three_company_missing_company_and_metric_are_explicit(tmp_path):
     )
 
     assert len(result["companies"]) == 3
-    assert result["companies"][2] == {"name": "Gamma", "code": None, "found": False}
+    assert result["companies"][2] == {
+        "name": "Gamma",
+        "queried_name": "Gamma",
+        "code": None,
+        "found": False,
+    }
     metric = result["metrics"][0]
     assert metric["comparable"] is False
     assert metric["rows"][-1]["value"] is None
@@ -143,3 +151,60 @@ def test_parameter_validation_and_default_metric_order():
         "revenue",
         "total_assets",
     ]
+
+
+def test_annual_period_input_normalizes_and_candidates_cover_legacy_forms():
+    assert normalize_report_period_input("2024") == "2024年度"
+    assert normalize_report_period_input("2024年") == "2024年度"
+    assert normalize_report_period_input("2024年度") == "2024年度"
+    assert normalize_report_period_input(" 2024 年报 ") == "2024年度"
+    # 非年度口径原样传递，绝不并入年度对比
+    assert normalize_report_period_input("2024半年度") == "2024半年度"
+    assert normalize_report_period_input("2024第二季度") == "2024第二季度"
+    assert report_period_candidates("2024年") == ["2024年度", "2024年", "2024"]
+
+
+def test_short_name_resolves_to_unique_company_and_marks_resolution(tmp_path):
+    store = FinancialMetricStore(tmp_path / "metrics.db")
+    store.create(_metric("苏州长光华芯光电技术股份有限公司", "revenue", "100"))
+    store.create(_metric("成都华微电子科技股份有限公司", "revenue", "200"))
+
+    result = compare_companies(
+        store,
+        kb_id="default",
+        company_names=["长光华芯", "成都华微"],
+        report_period="2024年",
+    )
+
+    assert [c["name"] for c in result["companies"]] == [
+        "苏州长光华芯光电技术股份有限公司",
+        "成都华微电子科技股份有限公司",
+    ]
+    assert result["report_period"] == "2024年度"
+    assert all(c["found"] for c in result["companies"])
+    resolved = [p for p in result["pending_items"] if p["code"] == "name_resolved"]
+    assert len(resolved) == 2
+    assert resolved[0]["company_name"] == "苏州长光华芯光电技术股份有限公司"
+
+
+def test_ambiguous_short_name_lists_candidates_instead_of_guessing(tmp_path):
+    store = FinancialMetricStore(tmp_path / "metrics.db")
+    store.create(_metric("吉林华微电子股份有限公司", "revenue", "100"))
+    store.create(_metric("成都华微电子科技股份有限公司", "revenue", "200"))
+
+    with pytest.raises(ValueError, match="匹配到多家公司"):
+        compare_companies(
+            store,
+            kb_id="default",
+            company_names=["华微", "成都华微"],
+            report_period="2024年度",
+        )
+
+
+def test_resolve_company_name_exact_match_wins(tmp_path):
+    store = FinancialMetricStore(tmp_path / "metrics.db")
+    full = "苏州长光华芯光电技术股份有限公司"
+    store.create(_metric(full, "revenue", "100"))
+    resolved, candidates = resolve_company_name(store, kb_id="default", name=full)
+    assert resolved == full
+    assert candidates == []

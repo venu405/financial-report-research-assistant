@@ -1,6 +1,8 @@
 """用户选定公司的同期间确定性指标对比，不推断同行关系。"""
 from __future__ import annotations
 
+import re
+import unicodedata
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Sequence
 
@@ -34,6 +36,50 @@ def normalize_company_names(company_names: Sequence[str] | None) -> list[str]:
     if len(set(names)) != len(names):
         raise ValueError("company_names 不能包含重复名称")
     return names
+
+
+_ANNUAL_PERIOD_RE = re.compile(r"^(?:19|20)\d{2}(?:年(?:度|报)?)?$")
+
+
+def normalize_report_period_input(value: Any) -> str:
+    """把用户输入的报告期归一到库内年度口径。
+
+    裸年份 /「2024年」/「2024年度」/「2024年报」统一映射为「2024年度」；
+    半年度、季度等其它口径原样传递，必须显式输入——不做前缀模糊匹配，
+    避免把半年度记录混进年度对比。
+    """
+    text = unicodedata.normalize("NFKC", str(value or "")).strip()
+    text = re.sub(r"\s+", "", text)
+    if _ANNUAL_PERIOD_RE.fullmatch(text):
+        return f"{text[:4]}年度"
+    return text
+
+
+def report_period_candidates(value: Any) -> list[str]:
+    """年度输入的等价期间形式（按优先级），兼容旧数据里的裸年份/「N年」。"""
+    text = unicodedata.normalize("NFKC", str(value or "")).strip()
+    text = re.sub(r"\s+", "", text)
+    if _ANNUAL_PERIOD_RE.fullmatch(text):
+        return [f"{text[:4]}年度", f"{text[:4]}年", text[:4]]
+    return [text]
+
+
+def resolve_company_name(
+    store: FinancialMetricStore, *, kb_id: str, name: str
+) -> tuple[str, list[str]]:
+    """全称精确匹配优先；否则做唯一子串匹配（支持简称）。
+
+    返回 (解析后的名称, 候选列表)。多个候选时返回空名称与候选清单，
+    由调用方报错让用户改用完整名称，不擅自猜测。
+    """
+    known = store.distinct_company_names(kb_id=kb_id)
+    if name in known:
+        return name, []
+    folded = name.casefold()
+    matches = [c for c in known if folded in c.casefold() or c.casefold() in folded]
+    if len(matches) == 1:
+        return matches[0], matches
+    return "", matches
 
 
 def normalize_metric_codes(metric_codes: Sequence[str] | None) -> list[str]:
@@ -125,16 +171,37 @@ def compare_companies(
     metric_codes: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     names = normalize_company_names(company_names)
-    period = str(report_period).strip()
+    period = normalize_report_period_input(report_period)
     if not period:
         raise ValueError("report_period 不能为空")
+    period_options = report_period_candidates(report_period)
     codes = normalize_metric_codes(metric_codes)
     pending: list[dict[str, Any]] = []
     selected_by_company: dict[str, dict[str, dict[str, Any] | None]] = {}
     company_rows: list[dict[str, Any]] = []
 
+    # 简称解析：全称精确匹配优先，唯一子串匹配兜底；多候选报错不猜测。
+    resolved_names: list[str] = []
     for name in names:
-        records, _ = store.list(kb_id=kb_id, company_name=name, report_period=period, limit=200)
+        resolved, candidates = resolve_company_name(store, kb_id=kb_id, name=name)
+        if not resolved:
+            if candidates:
+                raise ValueError(
+                    f"「{name}」匹配到多家公司：{'、'.join(candidates)}，请改用完整公司名称"
+                )
+            resolved = name
+        resolved_names.append(resolved)
+
+    for name, resolved in zip(names, resolved_names):
+        records: list[dict[str, Any]] = []
+        matched_period = period
+        for option in period_options:
+            records, _ = store.list(
+                kb_id=kb_id, company_name=resolved, report_period=option, limit=200
+            )
+            if records:
+                matched_period = option
+                break
         groups = {code: [] for code in codes}
         for record in records:
             if record.get("metric_code") in groups:
@@ -145,19 +212,25 @@ def compare_companies(
             selected[code] = selected_record
             if duplicate:
                 pending.append(_pending("duplicate_metric", name, code, f"{name} 的 {period} {METRIC_NAMES[code]} 有重复记录，已选择 updated_at/id 最新记录"))
-        selected_by_company[name] = selected
+        selected_by_company[resolved] = selected
         company_code = None
         for record in records:
             if str(record.get("company_code") or "").strip():
                 company_code = str(record["company_code"]).strip()
                 break
-        company_rows.append({"name": name, "code": company_code, "found": bool(records)})
+        company_rows.append(
+            {"name": resolved, "queried_name": name, "code": company_code, "found": bool(records)}
+        )
+        if resolved != name:
+            pending.append(
+                _pending("name_resolved", resolved, None, f"已按简称「{name}」匹配到 {resolved}")
+            )
         if not records:
-            pending.append(_pending("missing_company", name, None, f"未找到 {name} 在 {period} 的指标记录"))
+            pending.append(_pending("missing_company", resolved, None, f"未找到 {resolved} 在 {matched_period} 的指标记录"))
 
     metrics: list[dict[str, Any]] = []
     for code in codes:
-        selected_records = [selected_by_company[name][code] for name in names]
+        selected_records = [selected_by_company[name][code] for name in resolved_names]
         values = [_decimal(record.get("normalized_value")) if record else None for record in selected_records]
         period_types = {record.get("period_type") for record in selected_records if record}
         scopes = {record.get("statement_scope") for record in selected_records if record}
@@ -180,7 +253,7 @@ def compare_companies(
             note = "按用户所选公司同期间、同口径比较"
 
         rows: list[dict[str, Any]] = []
-        for name, record, value in zip(names, selected_records, values, strict=True):
+        for name, record, value in zip(resolved_names, selected_records, values, strict=True):
             if record is None:
                 pending.append(_pending("missing_metric", name, code, f"{name} 缺少 {METRIC_NAMES[code]}"))
                 row_note = "指标缺失"
