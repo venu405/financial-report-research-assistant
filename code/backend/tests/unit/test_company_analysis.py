@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 from services.kb.company_analysis import analyze_company
 from services.kb.financial_metric_store import FinancialMetricStore
 
@@ -124,3 +126,56 @@ def test_seed_json_is_idempotent_in_a_temporary_database(tmp_path):
     assert second == {"inserted": 0, "skipped": 15, "total": 15}
     assert total == 15
     assert len(items) == 15
+
+
+def test_annual_period_shortcut_and_short_name_resolution(tmp_path):
+    store = FinancialMetricStore(tmp_path / "metrics.db")
+    for code in METRICS:
+        store.create(_record(code=code, company="苏州长光华芯光电技术股份有限公司"))
+
+    result = analyze_company(
+        store,
+        kb_id="default",
+        company_name="长光华芯",
+        report_period="2024年",
+    )
+
+    assert result["company"]["name"] == "苏州长光华芯光电技术股份有限公司"
+    assert result["company"]["queried_name"] == "长光华芯"
+    assert result["report_period"] == "2024年度"
+    assert any(p["code"] == "name_resolved" for p in result["pending_items"])
+
+
+def test_ambiguous_short_name_lists_candidates(tmp_path):
+    store = FinancialMetricStore(tmp_path / "metrics.db")
+    store.create(_record(code="revenue", company="吉林华微电子股份有限公司"))
+    store.create(_record(code="revenue", value="200", company="成都华微电子科技股份有限公司"))
+
+    with pytest.raises(ValueError, match="匹配到多家公司"):
+        analyze_company(
+            store,
+            kb_id="default",
+            company_name="华微",
+            report_period="2024年度",
+        )
+
+
+def test_without_comparison_skips_comparison_work(tmp_path):
+    store = FinancialMetricStore(tmp_path / "metrics.db")
+    for code in METRICS:
+        store.create(_record(code=code, company="Alpha"))
+
+    result = analyze_company(
+        store,
+        kb_id="default",
+        company_name="Alpha",
+        report_period="2024年度",
+        derive_comparison=False,
+    )
+
+    assert result["comparison_period"] is None
+    assert all(m["comparison"] is None for m in result["metrics"])
+    assert all(m["change_amount"] is None for m in result["metrics"])
+    codes = {p["code"] for p in result["pending_items"]}
+    assert "comparison_period_not_found" not in codes
+    assert "missing_comparison_metric" not in codes

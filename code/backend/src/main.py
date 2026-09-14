@@ -300,6 +300,13 @@ class V1PeerComparisonRequest(BaseModel):
         return value
 
 
+class CompanyAnalysisBriefRequest(BaseModel):
+    kb_id: str = Field(default="default", min_length=1, max_length=64)
+    company_name: str = Field(min_length=1, max_length=128)
+    report_period: str = Field(min_length=1, max_length=64)
+    user_id: str | None = Field(default=None, max_length=128)
+
+
 class PeerComparisonBriefRequest(BaseModel):
     """同业简报只接收筛选条件，财务数值由服务端重新计算。"""
 
@@ -1916,6 +1923,7 @@ def create_app() -> FastAPI:
         company_name: str = Query(..., min_length=1),
         report_period: str = Query(..., min_length=1),
         comparison_period: str | None = Query(default=None),
+        with_comparison: bool = Query(default=True),
         user_id: str | None = Query(default=None),
         x_api_token: str | None = Header(default=None),
     ) -> Dict[str, Any]:
@@ -1931,9 +1939,38 @@ def create_app() -> FastAPI:
                 company_name=company_name,
                 report_period=report_period,
                 comparison_period=comparison_period,
+                derive_comparison=with_comparison,
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/kb/company-analysis/brief")
+    def create_company_analysis_brief(
+        payload: CompanyAnalysisBriefRequest,
+        x_api_token: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        from services.kb.company_analysis import analyze_company
+        from services.kb.company_analysis_brief import generate_company_analysis_brief
+
+        kb = _get_kb()
+        resolved_user = _resolve_user_id(kb, x_api_token, payload.user_id)
+        _require_kb_access(kb, resolved_user, payload.kb_id)
+        try:
+            analysis = analyze_company(
+                kb["financial_metric_store"],
+                kb_id=payload.kb_id,
+                company_name=payload.company_name,
+                report_period=payload.report_period,
+                derive_comparison=False,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return generate_company_analysis_brief(
+            analysis,
+            llm=kb["llm"],
+            model=kb["config"].llm_model_id or "deepseek-chat",
+            reasoning_effort=kb["config"].llm_reasoning_effort,
+        )
 
     @app.get("/kb/peer-comparison")
     def get_peer_comparison(

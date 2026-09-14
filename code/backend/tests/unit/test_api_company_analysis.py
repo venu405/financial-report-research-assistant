@@ -55,8 +55,8 @@ def test_company_analysis_http_contract_and_permission(monkeypatch, tmp_path):
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["company"] == {"name": "API分析公司", "code": None}
-    assert body["report_period"] == "2024"
+    assert body["company"] == {"name": "API分析公司", "queried_name": "API分析公司", "code": None}
+    assert body["report_period"] == "2024年度"
     assert body["comparison_period"] == "2023"
     assert [item["metric_code"] for item in body["metrics"]] == [
         "revenue", "net_profit_parent", "operating_cash_flow", "total_assets", "total_liabilities"

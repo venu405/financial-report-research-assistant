@@ -6,6 +6,11 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 from .financial_metric_store import FinancialMetricStore
+from .peer_comparison import (
+    normalize_report_period_input,
+    report_period_candidates,
+    resolve_company_name,
+)
 
 METRIC_ORDER = (
     "revenue",
@@ -98,26 +103,48 @@ def analyze_company(
     company_name: str,
     report_period: str,
     comparison_period: str | None = None,
+    derive_comparison: bool = True,
 ) -> dict[str, Any]:
-    """按固定规则生成单公司指标、比较、现金流对照和待办项。"""
-    company_name = company_name.strip()
-    report_period = report_period.strip()
-    if not company_name:
+    """按固定规则生成单公司指标、现金流对照和待办项。
+
+    derive_comparison=False 时只取当前报告期的 5 项指标，不做任何期间比较
+    （不自动推导上年、不产出比较相关的待核实项）。
+    """
+    queried_name = company_name.strip()
+    if not queried_name:
         raise ValueError("company_name 不能为空")
+    # 简称解析：全称精确匹配优先，唯一子串匹配兜底；多候选报错不猜测。
+    resolved_name, candidates = resolve_company_name(store, kb_id=kb_id, name=queried_name)
+    if not resolved_name:
+        if candidates:
+            raise ValueError(
+                f"「{queried_name}」匹配到多家公司：{'、'.join(candidates)}，请改用完整公司名称"
+            )
+        resolved_name = queried_name
+    company_name = resolved_name
+    report_period = normalize_report_period_input(report_period)
     if not report_period:
         raise ValueError("report_period 不能为空")
 
-    current_records, _ = store.list(
-        kb_id=kb_id, company_name=company_name, report_period=report_period, limit=200
-    )
     pending: list[dict[str, Any]] = []
-    derived_period = comparison_period.strip() if comparison_period and comparison_period.strip() else _period_before(report_period)
+    current_records: list[dict[str, Any]] = []
+    for option in report_period_candidates(report_period):
+        current_records, _ = store.list(
+            kb_id=kb_id, company_name=company_name, report_period=option, limit=200
+        )
+        if current_records:
+            break
+    if queried_name != company_name:
+        pending.append(_pending("name_resolved", None, f"已按简称「{queried_name}」匹配到 {company_name}"))
+
+    explicit = comparison_period.strip() if comparison_period and comparison_period.strip() else ""
+    derived_period: str | None = explicit or (_period_before(report_period) if derive_comparison else None)
     comparison_records: list[dict[str, Any]] = []
     if derived_period is not None:
         comparison_records, _ = store.list(
             kb_id=kb_id, company_name=company_name, report_period=derived_period, limit=200
         )
-    elif comparison_period is None:
+    elif comparison_period is None and derive_comparison:
         pending.append(_pending("comparison_period_unavailable", None, "报告期间不是可推导四位年份，未设置比较期间"))
 
     current_groups = _records_by_metric(current_records)
@@ -130,6 +157,9 @@ def analyze_company(
         selected_current[code] = selected
         if duplicate:
             pending.append(_pending("duplicate_metric", code, f"{report_period} 存在重复指标，已选择 updated_at/id 最新记录"))
+        if derived_period is None:
+            selected_comparison[code] = None
+            continue
         selected, duplicate = _latest(comparison_groups[code])
         selected_comparison[code] = selected
         if duplicate:
@@ -252,7 +282,7 @@ def analyze_company(
             })
 
     return {
-        "company": {"name": company_name, "code": company_code},
+        "company": {"name": company_name, "queried_name": queried_name, "code": company_code},
         "report_period": report_period,
         "comparison_period": derived_period,
         "metrics": metrics,

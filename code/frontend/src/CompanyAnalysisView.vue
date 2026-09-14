@@ -4,6 +4,7 @@ import { currentKb, userToken } from "./useKbState";
 import {
   exportCompanyAnalysis,
   getCompanyAnalysis,
+  generateCompanyAnalysisBrief,
   listFinancialMetricRevisions,
   listFinancialMetrics,
   updateFinancialMetric,
@@ -43,7 +44,7 @@ type MetricDraft = {
 };
 
 const filters = reactive({ companyName: "", reportPeriod: "", metricCode: "" });
-const analysisForm = reactive({ companyName: "", reportPeriod: "", comparisonPeriod: "" });
+const analysisForm = reactive({ companyName: "", reportPeriod: "" });
 const analysis = ref<CompanyAnalysisResponse | null>(null);
 const analysisGenerated = ref(false);
 const analysisLoading = ref(false);
@@ -53,6 +54,10 @@ const analysisExportParams = ref<{ companyName: string; reportPeriod: string; co
 const analysisExportLoading = ref(false);
 const analysisExportError = ref("");
 const analysisExportMessage = ref("");
+const analysisBrief = ref<{ brief: string; brief_source: "llm" | "template" } | null>(null);
+const analysisBriefLoading = ref(false);
+const analysisBriefError = ref("");
+const analysisBriefCopyMessage = ref("");
 const items = ref<FinancialMetric[]>([]);
 const total = ref(0);
 const limit = ref(20);
@@ -121,12 +126,14 @@ function resetMetricList() {
 async function generateAnalysis() {
   const companyName = analysisForm.companyName.trim();
   const reportPeriod = analysisForm.reportPeriod.trim();
-  const comparisonPeriod = analysisForm.comparisonPeriod.trim();
   analysisError.value = "";
   analysisNotice.value = "";
   analysisExportParams.value = null;
   analysisExportError.value = "";
   analysisExportMessage.value = "";
+  analysisBrief.value = null;
+  analysisBriefError.value = "";
+  analysisBriefCopyMessage.value = "";
   if (!companyName || !reportPeriod) {
     analysisGenerated.value = false;
     analysis.value = null;
@@ -144,10 +151,10 @@ async function generateAnalysis() {
   filters.metricCode = "";
   try {
     const [summary, metricList] = await Promise.all([
-      getCompanyAnalysis({ companyName, reportPeriod, comparisonPeriod }),
+      getCompanyAnalysis({ companyName, reportPeriod, withComparison: false }),
       listFinancialMetrics({ companyName, reportPeriod, limit: limit.value, offset: 0 }),
     ]);
-    analysisExportParams.value = { companyName, reportPeriod, comparisonPeriod };
+    analysisExportParams.value = { companyName, reportPeriod };
     analysis.value = summary;
     analysisGenerated.value = true;
     items.value = metricList.items;
@@ -180,10 +187,34 @@ async function exportAnalysisDraft() {
   }
 }
 
+async function createAnalysisBrief() {
+  if (!analysisExportParams.value || analysisBriefLoading.value) return;
+  analysisBriefLoading.value = true;
+  analysisBriefError.value = "";
+  analysisBriefCopyMessage.value = "";
+  try {
+    analysisBrief.value = await generateCompanyAnalysisBrief(analysisExportParams.value);
+  } catch (e) {
+    analysisBriefError.value = `生成分析简报失败：${(e as Error).message}`;
+  } finally {
+    analysisBriefLoading.value = false;
+  }
+}
+
+async function copyAnalysisBrief() {
+  if (!analysisBrief.value?.brief) return;
+  analysisBriefCopyMessage.value = "";
+  try {
+    await navigator.clipboard.writeText(analysisBrief.value.brief);
+    analysisBriefCopyMessage.value = "已复制到剪贴板。";
+  } catch {
+    analysisBriefCopyMessage.value = "复制失败，请手动选择简报内容复制。";
+  }
+}
+
 function clearAnalysis() {
   analysisForm.companyName = "";
   analysisForm.reportPeriod = "";
-  analysisForm.comparisonPeriod = "";
   analysis.value = null;
   analysisGenerated.value = false;
   analysisError.value = "";
@@ -191,6 +222,9 @@ function clearAnalysis() {
   analysisExportParams.value = null;
   analysisExportError.value = "";
   analysisExportMessage.value = "";
+  analysisBrief.value = null;
+  analysisBriefError.value = "";
+  analysisBriefCopyMessage.value = "";
   filters.companyName = "";
   filters.reportPeriod = "";
   filters.metricCode = "";
@@ -348,14 +382,13 @@ async function saveRevision(item: FinancialMetric) {
         <div>
           <span class="eyebrow">阶段 3 · 单公司研究</span>
           <h1>公司分析</h1>
-          <p>输入公司和报告期，读取接口返回的事实、比较结果与证据；页面不生成预测、评分或投资建议。</p>
+          <p>输入公司（支持简称）和报告期（支持「2024年」简写），读取接口返回的五项指标事实与证据；页面不生成预测、评分或投资建议。</p>
         </div>
         <span class="auth-chip" :class="{ ready: hasToken }">{{ hasToken ? "已具备修订凭据" : "未登录：修订提交已禁用" }}</span>
       </div>
       <form class="analysis-form" @submit.prevent="generateAnalysis">
         <label>公司 <span class="required-mark">必填</span><input v-model="analysisForm.companyName" placeholder="公司名称或简称" /></label>
-        <label>报告期 <span class="required-mark">必填</span><input v-model="analysisForm.reportPeriod" placeholder="如：2024年度" /></label>
-        <label>比较期 <span class="optional-mark">可选</span><input v-model="analysisForm.comparisonPeriod" placeholder="留空由接口尝试推导" /></label>
+        <label>报告期 <span class="required-mark">必填</span><input v-model="analysisForm.reportPeriod" placeholder="如：2024年" /></label>
         <div class="analysis-actions"><button class="primary" type="submit" :disabled="analysisLoading">{{ analysisLoading ? "生成中…" : "生成分析" }}</button><button class="secondary" type="button" :disabled="analysisLoading" @click="clearAnalysis">清空</button></div>
       </form>
     </div>
@@ -369,25 +402,27 @@ async function saveRevision(item: FinancialMetric) {
         <div>
           <span class="eyebrow">研究摘要 · 已返回接口事实</span>
           <h2>{{ analysis.company?.name || analysisForm.companyName || "公司名称未提供" }}</h2>
-          <p>{{ analysis.company?.code || "公司代码未提供" }} · 报告期 {{ analysis.report_period || analysisForm.reportPeriod || "未提供" }} · 比较期 {{ analysis.comparison_period || "未提供" }}</p>
+          <p>{{ analysis.company?.code || "公司代码未提供" }} · 报告期 {{ analysis.report_period || analysisForm.reportPeriod || "未提供" }}</p>
         </div>
-        <div class="summary-actions"><span class="summary-state">{{ analysis.metrics.length ? "已返回指标" : "未返回指标" }}</span><button class="export-button" type="button" :disabled="analysisExportLoading || !analysisExportParams" @click="exportAnalysisDraft">{{ analysisExportLoading ? "导出中…" : "导出研究底稿" }}</button></div>
+        <div class="summary-actions"><span class="summary-state">{{ analysis.metrics.length ? "已返回指标" : "未返回指标" }}</span><button class="export-button" type="button" :disabled="analysisBriefLoading || !analysisExportParams" @click="createAnalysisBrief">{{ analysisBriefLoading ? "简报生成中…" : "生成分析简报" }}</button><button class="export-button" type="button" :disabled="analysisExportLoading || !analysisExportParams" @click="exportAnalysisDraft">{{ analysisExportLoading ? "导出中…" : "导出研究底稿" }}</button></div>
       </div>
       <p v-if="analysisExportError" class="export-feedback error">{{ analysisExportError }}</p>
       <p v-else-if="analysisExportMessage" class="export-feedback success">{{ analysisExportMessage }}</p>
+      <p v-if="analysisBriefError" class="export-feedback error">{{ analysisBriefError }}</p>
+
+      <article v-if="analysisBrief" class="summary-panel card">
+        <div class="panel-heading"><div><span class="panel-kicker">分析简报</span><h3>基于结构化分析结果生成</h3></div><div class="brief-actions"><span class="summary-state">{{ analysisBrief.brief_source === "llm" ? "LLM 简报" : "规则模板简报" }}</span><button class="export-button" type="button" @click="copyAnalysisBrief">一键复制</button></div></div>
+        <pre class="brief-content">{{ analysisBrief.brief }}</pre>
+        <p v-if="analysisBriefCopyMessage" class="export-feedback success">{{ analysisBriefCopyMessage }}</p>
+      </article>
 
       <div class="metric-card-grid">
         <article v-for="metric in analysisMetrics" :key="metric.metric_code" class="metric-card card">
           <div class="metric-card-heading"><span>{{ metric.metric_name || metric.metric_code }}</span><code>{{ metric.metric_code }}</code></div>
           <div class="metric-values">
             <div><small>当前值</small><strong>{{ analysisMetricValue(metric.current) }}</strong><em>{{ analysisMetricSource(metric.current) }}</em></div>
-            <div><small>比较值</small><strong>{{ analysisMetricValue(metric.comparison) }}</strong><em>{{ analysisMetricSource(metric.comparison) }}</em></div>
           </div>
-          <div class="change-line" :class="{ pending: !metric.comparable }">
-            <span>变动额 {{ metric.comparable ? formatAnalysisChange(metric.change_amount, "元") : "不可比较" }}</span>
-            <span>变动率 {{ metric.comparable ? formatAnalysisRate(metric.change_rate_percent) : "不可比较" }}</span>
-          </div>
-          <p class="comparison-note">{{ metric.comparable ? (metric.comparison_note || "已返回可比结果") : (metric.comparison_note || "当前没有可比口径") }}</p>
+          <p class="comparison-note">{{ metric.comparison_note || "当前没有可比口径" }}</p>
         </article>
       </div>
 
@@ -424,7 +459,7 @@ async function saveRevision(item: FinancialMetric) {
       </article>
     </section>
 
-    <div v-else-if="!analysisGenerated && !analysisNotice" class="analysis-empty card"><strong>请先输入公司和报告期</strong><span>生成后这里会显示五项指标、比较期、现金流对照、报告披露和待核实事项。</span></div>
+    <div v-else-if="!analysisGenerated && !analysisNotice" class="analysis-empty card"><strong>请先输入公司和报告期</strong><span>生成后这里会显示五项指标、现金流对照、报告披露和待核实事项。</span></div>
 
     <div class="analysis-toolbar card">
       <div class="toolbar-heading">
@@ -543,6 +578,8 @@ async function saveRevision(item: FinancialMetric) {
 .change-line { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; color: var(--color-success); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 .change-line.pending { color: var(--color-warning); }
 .comparison-note, .summary-note { margin: 9px 0 0; color: var(--color-slate); font-size: var(--text-xs); line-height: 1.5; }
+.brief-actions { display: flex; align-items: center; gap: 8px; }
+.brief-content { margin: 0; padding: 12px; overflow: auto; border: 1px solid var(--color-border-soft); border-radius: var(--radius-md); color: var(--color-charcoal); background: var(--color-bg-quiet); font: 12px/1.65 var(--font-mono); white-space: pre-wrap; word-break: break-word; }
 .summary-columns { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 12px; }
 .cash-flow-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 12px; }
 .cash-flow-grid > div { padding: 10px; border-left: 2px solid var(--color-accent); background: var(--color-bg-quiet); }

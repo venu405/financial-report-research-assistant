@@ -153,6 +153,7 @@ export async function getCompanyAnalysis(params: {
   companyName: string;
   reportPeriod: string;
   comparisonPeriod?: string;
+  withComparison?: boolean;
 }): Promise<CompanyAnalysisResponse> {
   const query = companyAnalysisQuery(params);
   const response = await fetch(`${baseURL}/kb/company-analysis?${query.toString()}`, { headers: headers() });
@@ -183,6 +184,7 @@ function companyAnalysisQuery(params: {
   companyName: string;
   reportPeriod: string;
   comparisonPeriod?: string;
+  withComparison?: boolean;
 }) {
   const query = new URLSearchParams({
     kb_id: currentKb.value,
@@ -190,7 +192,29 @@ function companyAnalysisQuery(params: {
     report_period: params.reportPeriod.trim(),
   });
   if (params.comparisonPeriod?.trim()) query.set("comparison_period", params.comparisonPeriod.trim());
+  if (params.withComparison === false) query.set("with_comparison", "false");
   return query;
+}
+
+export async function generateCompanyAnalysisBrief(params: {
+  companyName: string;
+  reportPeriod: string;
+}): Promise<{ brief: string; brief_source: "llm" | "template" }> {
+  const response = await fetch(`${baseURL}/kb/company-analysis/brief`, {
+    method: "POST",
+    headers: headers(true),
+    body: JSON.stringify({
+      kb_id: currentKb.value,
+      company_name: params.companyName.trim(),
+      report_period: params.reportPeriod.trim(),
+    }),
+  });
+  if (!response.ok) throw await responseError(response);
+  const data = await response.json();
+  return {
+    brief: String(data.brief || ""),
+    brief_source: data.brief_source === "llm" ? "llm" : "template",
+  };
 }
 
 export async function exportCompanyAnalysis(params: {
