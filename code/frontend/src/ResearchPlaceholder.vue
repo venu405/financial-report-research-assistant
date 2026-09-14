@@ -6,6 +6,7 @@ import {
   type PeerComparisonResponse,
   type PeerComparisonRow,
   exportPeerComparison as requestPeerComparisonExport,
+  generatePeerComparisonBrief,
   getPeerComparison,
 } from "./services/peer-comparison-api";
 import {
@@ -35,6 +36,10 @@ const peerExportParams = ref<{ companyNames: string[]; reportPeriod: string; met
 const peerExportLoading = ref(false);
 const peerExportError = ref("");
 const peerExportMessage = ref("");
+const peerBrief = ref<{ brief: string; brief_source: "llm" | "template" } | null>(null);
+const peerBriefLoading = ref(false);
+const peerBriefError = ref("");
+const peerBriefCopyMessage = ref("");
 
 const selectedMetricCount = computed(() => selectedMetricCodes.value.length);
 const hasResult = computed(() => result.value !== null);
@@ -56,6 +61,10 @@ function clearComparison() {
   peerExportParams.value = null;
   peerExportError.value = "";
   peerExportMessage.value = "";
+  peerBrief.value = null;
+  peerBriefLoading.value = false;
+  peerBriefError.value = "";
+  peerBriefCopyMessage.value = "";
 }
 
 async function generateComparison() {
@@ -67,6 +76,9 @@ async function generateComparison() {
   peerExportParams.value = null;
   peerExportError.value = "";
   peerExportMessage.value = "";
+  peerBrief.value = null;
+  peerBriefError.value = "";
+  peerBriefCopyMessage.value = "";
 
   if (!reportPeriod) {
     result.value = null;
@@ -125,6 +137,31 @@ async function exportComparisonDraft() {
   }
 }
 
+async function createComparisonBrief() {
+  if (!peerExportParams.value || peerBriefLoading.value) return;
+  peerBriefLoading.value = true;
+  peerBriefError.value = "";
+  peerBriefCopyMessage.value = "";
+  try {
+    peerBrief.value = await generatePeerComparisonBrief(peerExportParams.value);
+  } catch (e) {
+    peerBriefError.value = `生成对比简报失败：${(e as Error).message}`;
+  } finally {
+    peerBriefLoading.value = false;
+  }
+}
+
+async function copyComparisonBrief() {
+  if (!peerBrief.value?.brief) return;
+  peerBriefCopyMessage.value = "";
+  try {
+    await navigator.clipboard.writeText(peerBrief.value.brief);
+    peerBriefCopyMessage.value = "已复制到剪贴板。";
+  } catch {
+    peerBriefCopyMessage.value = "复制失败，请手动选择简报内容复制。";
+  }
+}
+
 function metricNote(metric: PeerComparisonMetric) {
   return metric.comparison_note || "当前没有可比口径说明。";
 }
@@ -180,9 +217,16 @@ function noBarLabel(metric: PeerComparisonMetric, row: PeerComparisonRow) {
     <div v-if="loading" class="loading-state"><span class="loader-dot"></span>正在读取同业对比与财报来源…</div>
 
     <section v-else-if="hasResult && result" class="comparison-result">
-      <div class="boundary-banner card"><div><span class="panel-kicker">样本边界</span><strong>{{ result.selection_note || "以下内容仅基于本次手动选择与接口返回记录。" }}</strong></div><div class="boundary-actions"><span class="period-chip">报告期：{{ result.report_period || form.reportPeriod || "未提供" }}</span><button class="export-button" type="button" :disabled="peerExportLoading || !peerExportParams" @click="exportComparisonDraft">{{ peerExportLoading ? "导出中…" : "导出研究底稿" }}</button></div></div>
+      <div class="boundary-banner card"><div><span class="panel-kicker">样本边界</span><strong>{{ result.selection_note || "以下内容仅基于本次手动选择与接口返回记录。" }}</strong></div><div class="boundary-actions"><span class="period-chip">报告期：{{ result.report_period || form.reportPeriod || "未提供" }}</span><button class="export-button" type="button" :disabled="peerBriefLoading || !peerExportParams" @click="createComparisonBrief">{{ peerBriefLoading ? "简报生成中…" : "生成对比简报" }}</button><button class="export-button" type="button" :disabled="peerExportLoading || !peerExportParams" @click="exportComparisonDraft">{{ peerExportLoading ? "导出中…" : "导出研究底稿" }}</button></div></div>
       <p v-if="peerExportError" class="export-feedback error">{{ peerExportError }}</p>
       <p v-else-if="peerExportMessage" class="export-feedback success">{{ peerExportMessage }}</p>
+      <p v-if="peerBriefError" class="export-feedback error">{{ peerBriefError }}</p>
+
+      <article v-if="peerBrief" class="brief-panel card">
+        <div class="section-heading"><div><span class="panel-kicker">对比简报</span><h2>基于结构化对比结果生成</h2></div><div class="brief-actions"><span class="status-tag">{{ peerBrief.brief_source === "llm" ? "LLM 简报" : "规则模板简报" }}</span><button class="export-button" type="button" @click="copyComparisonBrief">一键复制</button></div></div>
+        <p v-if="peerBriefCopyMessage" class="export-feedback" :class="{ error: peerBriefCopyMessage.includes('失败'), success: !peerBriefCopyMessage.includes('失败') }">{{ peerBriefCopyMessage }}</p>
+        <pre class="brief-content">{{ peerBrief.brief }}</pre>
+      </article>
 
       <article class="company-status card">
         <div class="section-heading"><div><span class="panel-kicker">样本核对</span><h2>公司返回状态</h2></div><span>{{ result.companies.length }} 家</span></div>
@@ -268,12 +312,14 @@ button { cursor: pointer; font: inherit; }
 .boundary-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-left: 3px solid var(--color-accent); }
 .boundary-banner div { display: flex; flex-direction: column; gap: 5px; }
 .boundary-banner strong { color: var(--color-ink-soft); font-size: var(--text-sm); font-weight: var(--weight-medium); }
-.boundary-actions { align-items: center; flex-direction: row !important; }
+.boundary-actions, .brief-actions { align-items: center; flex-direction: row !important; }
 .export-button { border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); padding: 7px 11px; color: var(--color-charcoal); background: var(--color-bg); font: inherit; font-size: var(--text-xs); cursor: pointer; }
 .export-button:disabled { opacity: .55; cursor: not-allowed; }
 .export-feedback { margin: -4px 0 0; font-size: var(--text-xs); }
 .export-feedback.error { color: var(--color-error); }
 .export-feedback.success { color: var(--color-success); }
+.brief-panel { padding: 16px; }
+.brief-content { margin: 0; padding: 12px; overflow: auto; border: 1px solid var(--color-border-soft); border-radius: var(--radius-md); color: var(--color-charcoal); background: var(--color-bg-quiet); font: 12px/1.65 var(--font-mono); white-space: pre-wrap; word-break: break-word; }
 .section-heading { align-items: flex-start; margin-bottom: 12px; color: var(--color-slate); font-size: var(--text-xs); }
 .section-heading h2 { margin: 3px 0 0; color: var(--color-ink); font-size: var(--text-base); }
 .metric-heading { align-items: center; }

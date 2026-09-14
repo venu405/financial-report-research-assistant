@@ -53,6 +53,11 @@ export interface PeerComparisonDownload {
   filename: string;
 }
 
+export interface PeerComparisonBriefResponse {
+  brief: string;
+  brief_source: "llm" | "template";
+}
+
 function headers(): Record<string, string> {
   const result: Record<string, string> = {};
   if (userToken.value.trim()) result["X-Api-Token"] = userToken.value.trim();
@@ -108,5 +113,28 @@ export async function exportPeerComparison(params: {
   return {
     blob: await response.blob(),
     filename: filenameFromContentDisposition(response.headers.get("Content-Disposition"), "peer-comparison-research.md"),
+  };
+}
+
+export async function generatePeerComparisonBrief(params: {
+  companyNames: string[];
+  reportPeriod: string;
+  metricCodes?: string[];
+}): Promise<PeerComparisonBriefResponse> {
+  const response = await fetch(`${baseURL}/kb/peer-comparison/brief`, {
+    method: "POST",
+    headers: { ...headers(), "Content-Type": "application/json" },
+    body: JSON.stringify({
+      kb_id: currentKb.value,
+      company_names: params.companyNames.map((name) => name.trim()),
+      report_period: params.reportPeriod.trim(),
+      metric_codes: (params.metricCodes || []).map((code) => code.trim()),
+    }),
+  });
+  if (!response.ok) throw await responseError(response);
+  const data = await response.json();
+  return {
+    brief: typeof data.brief === "string" ? data.brief : "",
+    brief_source: data.brief_source === "llm" ? "llm" : "template",
   };
 }

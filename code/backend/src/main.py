@@ -300,6 +300,45 @@ class V1PeerComparisonRequest(BaseModel):
         return value
 
 
+class PeerComparisonBriefRequest(BaseModel):
+    """同业简报只接收筛选条件，财务数值由服务端重新计算。"""
+
+    kb_id: str = Field(default="default", min_length=1, max_length=64)
+    company_names: list[str] = Field(min_length=2, max_length=3)
+    report_period: str = Field(min_length=1, max_length=64)
+    metric_codes: list[str] | None = Field(default=None, max_length=20)
+    user_id: str | None = Field(default=None, max_length=128)
+
+    @field_validator("company_names")
+    @classmethod
+    def _validate_companies(cls, value: list[str]) -> list[str]:
+        normalized = [item.strip() for item in value]
+        if any(not item or len(item) > 256 for item in normalized):
+            raise ValueError("company_names 不能包含空值且单项不超过 256 字符")
+        if len({item.casefold() for item in normalized}) != len(normalized):
+            raise ValueError("company_names 不能重复")
+        return normalized
+
+    @field_validator("metric_codes")
+    @classmethod
+    def _validate_metric_codes(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        normalized = [item.strip() for item in value]
+        if any(not item or len(item) > 64 for item in normalized):
+            raise ValueError("metric_codes 不能包含空值且单项不超过 64 字符")
+        if len({item.casefold() for item in normalized}) != len(normalized):
+            raise ValueError("metric_codes 不能重复")
+        return normalized
+
+    @field_validator("kb_id", "report_period")
+    @classmethod
+    def _require_non_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("字段不能为空")
+        return value
+
+
 class V1ReportExportRequest(BaseModel):
     """导出统一返回 JSON，避免企业系统必须处理两种响应协议。"""
 
@@ -855,6 +894,7 @@ def create_app() -> FastAPI:
                     "embeddings": embeddings,
                     "store": store,
                     "graph": graph,
+                    "llm": llm,
                     "config": cfg,
                     "auth": auth,
                     "audit": audit,
@@ -1919,6 +1959,34 @@ def create_app() -> FastAPI:
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/kb/peer-comparison/brief")
+    def create_peer_comparison_brief(
+        payload: PeerComparisonBriefRequest,
+        x_api_token: str | None = Header(default=None),
+    ) -> Dict[str, Any]:
+        from services.kb.peer_comparison import compare_companies
+        from services.kb.peer_comparison_brief import generate_peer_comparison_brief
+
+        kb = _get_kb()
+        resolved_user = _resolve_user_id(kb, x_api_token, payload.user_id)
+        _require_kb_access(kb, resolved_user, payload.kb_id)
+        try:
+            comparison = compare_companies(
+                kb["financial_metric_store"],
+                kb_id=payload.kb_id,
+                company_names=payload.company_names,
+                report_period=payload.report_period,
+                metric_codes=payload.metric_codes,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return generate_peer_comparison_brief(
+            comparison,
+            llm=kb["llm"],
+            model=kb["config"].llm_model_id or "deepseek-chat",
+            reasoning_effort=kb["config"].llm_reasoning_effort,
+        )
 
     @app.get("/kb/company-analysis/export")
     def export_company_analysis(
