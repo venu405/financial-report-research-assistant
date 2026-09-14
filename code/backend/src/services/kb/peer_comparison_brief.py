@@ -5,6 +5,8 @@ import json
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from loguru import logger
+
 from .qa_graph import _llm_invoke
 
 
@@ -45,7 +47,8 @@ def _template_brief(result: dict[str, Any]) -> str:
             f"{row.get('company_name') or '未提供'}：{row.get('value') if row.get('value') is not None else '未提供/不可计算'}"
             for row in rows
         )
-        lines.extend([f"### {name}", "", f"- 指标值（元）：{rendered or '未提供/不可计算'}"])
+        unit = str(metric.get("unit") or "").strip() or "未标注单位"
+        lines.extend([f"### {name}", "", f"- 指标值（{unit}）：{rendered or '未提供/不可计算'}"])
         if metric.get("comparable"):
             values = [
                 (str(row.get("company_name") or "未提供"), _decimal(row.get("value")))
@@ -115,9 +118,13 @@ def generate_peer_comparison_brief(
         )
         if brief.strip():
             return {"brief": brief, "brief_source": "llm"}
-    except Exception:
-        # 简报是增强功能，调用失败不能影响已核验的结构化比较结果。
-        pass
+    except Exception as exc:
+        # 简报是增强功能，调用失败不能影响已核验的结构化比较结果；
+        # 但降级原因必须留痕，否则线上无法解释为何出现模板简报。
+        logger.warning("同业对比简报 LLM 生成失败，回退规则模板: {}", exc)
+    except BaseException as exc:
+        logger.warning("同业对比简报 LLM 调用被中断，回退规则模板: {}", exc)
+        raise
     return {"brief": _template_brief(result), "brief_source": "template"}
 
 
