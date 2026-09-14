@@ -19,14 +19,14 @@ Vue 3 + Vite + TypeScript
           │  /api（Nginx 反向代理）
 FastAPI（问答、指标、分析、对比、导出、治理接口）
           │
-混合检索：向量召回（Chroma / 可选 Qdrant）+ BM25 关键词召回
+混合检索：向量召回（Qdrant / 可切换 Chroma）+ BM25 关键词召回
           │
 重排与问答图：改写 → 召回 → 重排 → 可回答性门槛 → 生成 → 引用/数值核验
           │
 Ollama bge-m3（向量） + OpenAI 兼容大模型（默认示例为 DeepSeek）
 ```
 
-后端入口在 [`code/backend/src/main.py`](code/backend/src/main.py)，核心检索和问答实现位于 `code/backend/src/services/kb/`。结构化切片保留页码、章节、表名、期间、单位、报表口径和相邻块关系；`financial_metric_store.py` 保存原值、归一值、状态及来源定位。默认 Docker Compose 使用 Chroma 持久卷；Qdrant 适配器和验收报告用于可切换后端与固定回归，不代表 Compose 已自动切换到 Qdrant。
+后端入口在 [`code/backend/src/main.py`](code/backend/src/main.py)，核心检索和问答实现位于 `code/backend/src/services/kb/`。结构化切片保留页码、章节、表名、期间、单位、报表口径和相邻块关系；`financial_metric_store.py` 保存原值、归一值、状态及来源定位。Docker Compose 默认挂载 Qdrant 评测语料卷（73,662 分块的财报检索集合，kb_id=cninfo_report），向量召回与 36 题防退门禁共用同一套语料与配置；Chroma 为可切换适配后端（`KB_VECTOR_BACKEND=chroma`），切换到 Chroma 后须重跑评测门禁核对效果。
 
 ## 快速启动
 
@@ -85,7 +85,7 @@ migration-record/   本次本地资产迁移清单
 
 ## 已知限制
 
-- 默认 Compose 仍以 Chroma 为持久化向量库；Qdrant 评测使用独立集合和独立服务，切换后必须重新核对连接、集合、向量维度和语料。
+- Compose 默认使用 Qdrant 评测集合（kb_id=cninfo_report）；如切换 Chroma 后端，向量索引实现不同（HNSW 参数与过滤语义有差异），必须重跑 36 题门禁并核对连接、集合、向量维度和语料后再对外宣称成绩。
 - 指标抽取依赖报告版式和解析质量；单位、合并/母公司、年度/半年度、调整前后等口径不一致时系统会标记不可比，但无法替人工判断业务可比性。
 - 同业对比只描述用户选择的 2–3 家样本，不证明严格同行关系，也不代表行业全貌。
 - 证据不足时会拒答或列入待核实事项；模型可能遗漏披露原因，引用和数字仍需查看原文。
