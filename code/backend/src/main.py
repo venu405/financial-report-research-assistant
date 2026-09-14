@@ -1904,15 +1904,40 @@ def create_app() -> FastAPI:
         kb = _get_kb()
         resolved_user = _resolve_user_id(kb, x_api_token, user_id)
         _require_kb_access(kb, resolved_user, kb_id)
+        # 与公司分析/同业对齐：公司名支持简称解析、报告期支持「2024年」简写。
+        from services.kb.peer_comparison import (
+            report_period_candidates,
+            resolve_company_name,
+        )
+
         try:
-            items, total = kb["financial_metric_store"].list(
-                kb_id=kb_id,
-                company_name=company_name,
-                report_period=report_period,
-                metric_code=metric_code,
-                limit=limit,
-                offset=offset,
+            resolved_company = company_name
+            if company_name and company_name.strip():
+                resolved_company, candidates = resolve_company_name(
+                    kb["financial_metric_store"], kb_id=kb_id, name=company_name.strip()
+                )
+                if not resolved_company:
+                    if candidates:
+                        raise ValueError(
+                            f"「{company_name.strip()}」匹配到多家公司：{'、'.join(candidates)}，请改用完整公司名称"
+                        )
+                    resolved_company = company_name
+            period_options = (
+                report_period_candidates(report_period) if report_period and report_period.strip() else [None]
             )
+            items: list = []
+            total = 0
+            for option in period_options:
+                items, total = kb["financial_metric_store"].list(
+                    kb_id=kb_id,
+                    company_name=resolved_company,
+                    report_period=option,
+                    metric_code=metric_code,
+                    limit=limit,
+                    offset=offset,
+                )
+                if total:
+                    break
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         return {"items": items, "total": total, "limit": limit, "offset": offset}

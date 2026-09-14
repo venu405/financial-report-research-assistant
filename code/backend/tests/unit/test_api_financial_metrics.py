@@ -155,3 +155,27 @@ def test_api_rejects_invalid_enums_and_preserves_missing_as_null(monkeypatch, tm
     assert missing.status_code == 200
     assert missing.json()["item"]["raw_value"] is None
     assert missing.json()["item"]["normalized_value"] is None
+
+
+def test_list_supports_short_name_and_annual_period_shortcut(monkeypatch, tmp_path):
+    from services.kb.auth import AuthStore
+
+    auth = AuthStore(tmp_path / "kb_users.db")
+    user_id, token = auth.create_user("metrics-viewer", role="admin")
+    auth.grant_access(user_id, "default")
+    client = _make_client(monkeypatch, tmp_path)
+    headers = {"X-Api-Token": token}
+
+    full = "苏州长光华芯光电技术股份有限公司"
+    create = client.post("/kb/financial-metrics", json=_payload(company_name=full), headers=headers)
+    assert create.status_code == 200, create.text
+
+    response = client.get(
+        "/kb/financial-metrics",
+        params={"company_name": "长光华芯", "report_period": "2024年"},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["total"] == 1
+    assert body["items"][0]["company_name"] == full
